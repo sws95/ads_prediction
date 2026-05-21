@@ -57,6 +57,18 @@ AutoInt가 0.0006 높지만 추론 속도는 DCN이 빠름.
 FM으로 학습된 categorical embedding을 t-SNE로 2차원 시각화.
 비슷한 클릭 패턴을 가진 카테고리값끼리 embedding 공간에서 군집화되는 경향 확인.
 
+## 실제 광고 시스템 구조
+
+본 프로젝트는 전체 광고 시스템 중 **랭킹(Ranking)** 단계에 해당합니다.
+
+| 단계 | 역할 | 기술 |
+|------|------|------|
+| 1. 후보 생성 (Candidate Generation) | 수백만 광고 → 수백 개 추려냄 | Two-Tower, ANN 검색 |
+| 2. **랭킹 (Ranking)** | 수백 개 → 수십 개 추려냄 | **DeepFM, DCN ← 본 프로젝트** |
+| 3. 재랭킹 (Re-ranking) | 다양성, 예산, 광고주 제약 고려 | MMR, 비즈니스 룰 |
+| 4. 입찰 (Bidding) | 광고주 입찰가 결정 | pCTR × pCVR × bid price |
+| 5. 예산 관리 (Budget Pacing) | 광고주 예산 고갈 방지 | 예산 제어 시스템 |
+
 ## 한계 및 향후 계획
 - Criteo는 feature semantic 비공개로 해석 한계
 - CVR 데이터 없어 CTR만 가능
