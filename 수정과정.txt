@@ -1,0 +1,163 @@
+gru가 뭐야오전 10:52Claude 응답: RNN의 개선 버전이에요.RNN의 개선 버전이에요.
+RNN 먼저
+시퀀스를 순서대로 읽으면서 이전 정보를 다음으로 넘겨요.
+나이키 클릭 → 아디다스 클릭 → 등산화 클릭 → 등산가방 클릭
+     ↓              ↓              ↓
+   hidden  →     hidden   →    hidden   →   최종 상태
+근데 RNN은 앞쪽 정보가 뒤로 갈수록 희미해져요 (기울기 소실).
+GRU가 해결하는 것
+"이 정보를 얼마나 기억할지, 얼마나 잊을지"를 학습해요.
+나이키 클릭  → 기억 게이트: "이거 나중에 필요없을 수도 있음"
+등산화 클릭  → 기억 게이트: "이거 중요하니까 강하게 기억"
+등산가방 클릭 → 기억 게이트: "등산 관심사 확실하니까 유지"
+LSTM이랑 비슷한데 구조가 더 단순해서 빠르고, 성능은 비슷해요.
+DIEN에서 쓰는 이유
+[나이키] → [아디다스] → [등산화] → [등산가방]
+  GRU가 흐름을 읽으면서:
+  "운동화 관심 → 등산으로 이동 중"
+  이 변화를 hidden state에 담아서 CTR 예측에 사용
+Transformer 나오기 전에 시퀀스 모델링 표준이었어요. SASRec이 GRU 대신 self-attention 쓰는 거고요.
+
+
+일단 이거는 나중에
+
+criteo에서 cvr ctr 둘다 해 보기 위해 IJCAI-18로 변경
+criteo는 열 이름 헤더가 비밀이라 의미가 없을 거 같았음
+하지만 신청하면 시간 걸리네...일단 criteo 먼저
+
+46M 처리중...
+전체 행: 45,840,617
+label     0.0
+I1       45.4
+I2        0.0
+I3       21.5
+I4       21.7
+I5        2.6
+I6       22.4
+I7        4.3
+I8        0.0
+I9        4.3
+I10      45.4
+I11       4.3
+I12      76.5
+I13      21.7
+C1        0.0
+C2        0.0
+C3        3.4
+C4        3.4
+C5        0.0
+C6       12.1
+C7        0.0
+C8        0.0
+C9        0.0
+C10       0.0
+C11       0.0
+C12       3.4
+C13       0.0
+C14       0.0
+C15       0.0
+C16       3.4
+C17       0.0
+C18       0.0
+C19      44.0
+C20      44.0
+C21       3.4
+C22      76.3
+C23       0.0
+C24       3.4
+C25      44.0
+C26      44.0
+dtype: float64
+
+dropna 하기에는 너무 결측값이 많다 clip(0) 하고 log1p로 가야될 듯
+
+label_encoders[col] = le
+우연히 c1 c2 같은 68fd1e64 해시값일 때 인덱싱이 다를 수 있으니 저장
+100만개씩 읽는데 100만개 안에 카테고리에 없는 게 있을 수 있기 때문에 카테고리 전처리를 위해 vocab 만들기
+
+46M 처리중...
+완료. vocab 크기:
+C1: 1460
+C2: 583
+C3: 10131227
+C4: 2202608
+C5: 305
+C6: 24
+C7: 12517
+C8: 633
+C9: 3
+C10: 93145
+C11: 5683
+C12: 8351593
+C13: 3194
+C14: 27
+C15: 14992
+C16: 5461306
+C17: 10
+C18: 5652
+C19: 2173
+C20: 4
+C21: 7046547
+C22: 18
+C23: 15
+C24: 286181
+C25: 105
+C26: 142572
+
+vocab이 너무 많아서 10개 미만인 건 결측치
+unknown 0번 고정
+
+Logistic Regression 먼저
+y = sigmoid(w0 + w1*I1 + w2*I2 + ... + w13*I13 + e1*C1 + e2*C2 + ... + e26*C26)
+DeepFM 논문(2017) 기준:
+LR:     AUC 0.7707
+FM:     AUC 0.7890
+DeepFM: AUC 0.8007
+DeepFM 파라미터: 18,952,974
+
+DCN v2 파라미터: 18,259,872
+AutoInt 파라미터: 17,719,122
+----
+LR
+train loss: 0.6031
+val AUC: 0.7546
+val logloss: 0.5075
+
+FM
+FM train loss: 3.7220
+FM val AUC: 0.6673
+FM val logloss: 1.3951
+
+deepFM
+DeepFM train loss: 1.9906
+DeepFM val AUC: 0.6478
+DeepFM val logloss: 1.8038
+
+DCN v2
+DCN v2 train loss: 0.4561
+DCN v2 val AUC: 0.7980
+DCN v2 val logloss: 0.4563
+
+AutoInt
+AutoInt train loss: 0.4588
+AutoInt val AUC: 0.7986
+AutoInt val logloss: 0.4556
+
+logit 범위: -54.93 ~ 40.11 logit 평균: -3.70
+범위가 너무 넓어요. -54 ~ 40이면 FM 2차 항이 폭발한 거예요.
+문제는 FM의 fm_part가 너무 커지는 거예요. embedding 초기화가 잘못됐거나 lr이 너무 높아서 발산한 거예요.
+FM 모델 다시 만들고 lr 낮춰서 돌려볼게요:
+
+
+
+optimizer_fm2 = torch.optim.Adam(fm_model2.parameters(), lr=1e-3)  # lr 다시 원상복구, std만 0.01로 낮춤
+epoch 2에서 점점 올라가서 scheduler로 lr 0.1 씩 내리기 했음
+
+FM2 2epoch val AUC: 0.7714
+FM2 2epoch val logloss: 0.4912
+
+----
+
+DeepFM train loss: 0.4871
+DeepFM val AUC: 0.7829
+DeepFM val logloss: 0.4779
