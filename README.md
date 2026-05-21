@@ -68,3 +68,6 @@ Python 3.12
 PyTorch 2.1 (CUDA 12.6)
 pandas, numpy, scikit-learn, matplotlib
 ```
+
+
+![임베딩 시각화](./results/small_embedding.png)
