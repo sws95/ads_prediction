@@ -10,7 +10,7 @@ Criteo Display Advertising Challenge 데이터셋(45M rows)으로 CTR 예측 모
 
 - 출처: Criteo Display Advertising Challenge (Kaggle)
 - 크기: 45,840,617 rows
-- Features: 13 numerical (I1~I13) + 26 categorical (C1~C26) + label
+- Features: 13 numerical (I1\~I13) + 26 categorical (C1\~C26) + label
 - 결측값: I12(76.5%), I1/I10(45.4%), C22(76.3%), C19/C20/C25/C26(44%) 등
 
 ### Ali-CCP (CTR + CVR)
