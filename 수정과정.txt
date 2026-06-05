@@ -197,3 +197,23 @@ pCTCVR = pCTR × pCVR
 pCTR = P(클릭 | 노출) ← 학습 가능 (노출 데이터 많음)
 pCTCVR = P(클릭∧전환 | 노출) ← 학습 가능 (노출 데이터에서 라벨 직접 계산)
 pCVR = P(전환 | 클릭) ← 이게 우리가 원하는 값. 위 두 개로 유도.
+
+
+
+---
+
+PS C:\Users\swson23\Desktop\test\ads_prediction> python .\run_esmm.py
+Device: cuda
+Train: 42,299,905, Val: 21,508,307, Test: 21,508,307
+Train CTR: 0.0389
+Train CVR (clicked): 0.0054
+Train CTCVR: 0.000208
+Sparse vocab sizes: {'101': 244397, '121': 98, '122': 14, '124': 3, '125': 8, '126': 4, '127': 4, '128': 3, '129': 5, '109_14': 5890, '110_14': 107110, '127_14': 54455, '150_14': 32174, '205': 538376, '206': 7092, '207': 285825, '210': 82412, '216': 113262, '508': 6057, '509': 118936, '702': 57234, '853': 40002, '301': 4}
+Model params: 27,369,298
+Epoch  1 | loss=0.1647 (ctr=0.1625, ctcvr=0.0022) | val CTR AUC=0.6188, CVR AUC=0.6566, CTCVR AUC=0.6257 | 1439.3s
+Epoch  2 | loss=0.1592 (ctr=0.1572, ctcvr=0.0020) | val CTR AUC=0.6221, CVR AUC=0.6712, CTCVR AUC=0.6279 | 1459.9s
+Epoch  3 | loss=0.1587 (ctr=0.1567, ctcvr=0.0020) | val CTR AUC=0.6241, CVR AUC=0.6797, CTCVR AUC=0.6406 | 1465.7s
+Epoch  4 | loss=0.1586 (ctr=0.1566, ctcvr=0.0020) | val CTR AUC=0.6235, CVR AUC=0.6746, CTCVR AUC=0.6296 | 1474.5s
+Epoch  5 | loss=0.1585 (ctr=0.1565, ctcvr=0.0020) | val CTR AUC=0.6224, CVR AUC=0.6700, CTCVR AUC=0.6329 | 1458.2s
+
+[Test] CTR AUC=0.6240, CVR AUC=0.6654, CTCVR AUC=0.6326
