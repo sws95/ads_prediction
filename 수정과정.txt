@@ -217,3 +217,467 @@ Epoch  4 | loss=0.1586 (ctr=0.1566, ctcvr=0.0020) | val CTR AUC=0.6235, CVR AUC=
 Epoch  5 | loss=0.1585 (ctr=0.1565, ctcvr=0.0020) | val CTR AUC=0.6224, CVR AUC=0.6700, CTCVR AUC=0.6329 | 1458.2s
 
 [Test] CTR AUC=0.6240, CVR AUC=0.6654, CTCVR AUC=0.6326
+
+이제 여기서 bid optimization도 한번 해 보자
+ORTB 랑 linear 있다는데
+
+
+20130606: imp 448,164  clk  328  conv   0
+20130607: imp 478,109  clk  306  conv   0
+20130608: imp 413,804  clk  346  conv   1
+20130609: imp 423,726  clk  351  conv   0
+
+광고주마다 conversion 정의가 완전히 달라서 비교 자체를 하지 않는다 
+
+(ads_venv) PS C:\Users\swson23\Desktop\test\ads_prediction> python 01_prepare_data.py
+20130606: imp 448,164  clk  328  CTR 0.0732%
+20130607: imp 478,109  clk  306  CTR 0.0640%
+20130608: imp 413,804  clk  346  CTR 0.0836%
+20130609: imp 423,726  clk  351  CTR 0.0828%
+20130610: imp 434,240  clk  370  CTR 0.0852%
+20130611: imp 437,520  clk  395  CTR 0.0903%
+20130612: imp 447,493  clk  356  CTR 0.0796%
+C:\Users\swson23\Desktop\test\ads_prediction\01_prepare_data.py:70: Pandas4Warning: For backward compatibility, 'str' dtypes are included by select_dtypes when 'object' dtype is specified. This behavior is deprecated and will be removed in a future version. Explicitly pass 'str' to `include` to select them, or to `exclude` to remove them and silence this warning.
+See https://pandas.pydata.org/docs/user_guide/migration-3-strings.html#string-migration-select-dtypes for details on how to write code that works with pandas 2 and 3.
+  for c in full.select_dtypes(include="object").columns:
+
+=== 1458 전체 (7일) ===
+imp:        3,083,056
+clicks:     2,452  (CTR 0.0795%)
+PayingPrice mean 68.9 / median 60 / 90% 147
+
+2. 클래스 불균형으로 인한 pCTR 편향 (calibration)
+CTR이 0.08%라 양성(클릭)이 극도로 희소합니다. 만약 negative downsampling이나 class_weight='balanced'를 쓰면 모델의 pCTR 출력이 실제 확률보다 부풀려집니다. 예를 들어 실제 0.08%인데 모델이 5%라고 출력하는 식입니다.
+순위(ranking)만 보는 AUC는 이래도 괜찮지만, 입찰가 계산엔 치명적입니다. Linear의 bid = base × pCTR/avg_pCTR이나 ORTB의 sqrt(c/λ × pCTR + c²) - c 둘 다 pCTR의 절대값을 직접 씁니다. pCTR이 부풀려지면 입찰가도 왜곡됩니다. 그래서 제가 짠 코드에서 class_weight를 일부러 안 쓴 게 이 calibration 보존 때문입니다.
+다만 downsampling을 쓰면 학습 속도가 빨라지는 장점이 있어서, 실무에선 downsampling 후 재보정(recalibration) 을 합니다. 공식은 p_corrected = p / (p + (1-p)/w) (w = downsampling 비율). 또는 Platt scaling, isotonic regression으로 보정합니다.
+
+
+02_train_ctr.py를 negative downsampling + 재보정 + calibration plot 버전으로 다시 짜겠습니다.
+핵심 공식부터 정리하면, negative만 비율 w로 downsampling하면(예: negative의 10%만 사용, w=0.1) 학습 데이터의 양성 비율이 인위적으로 부풀려집니다. 그래서 학습된 pCTR을 원래 분포로 되돌리는 보정이 필요합니다:
+p_corrected = p / (p + (1 - p) / w)
+w는 negative sampling rate입니다. 이 식은 Facebook의 CTR 논문(He et al. 2014)에 나오는 표준 보정식입니다.파일 생성됨, 명령 실행함, 파일 읽음파일 생성됨, 명령 실행함, 파일 읽음v2로 교체했습니다. 바뀐 점은 세 가지입니다.
+negative downsampling을 학습셋에만 적용합니다. 양성(클릭)은 전부 유지하고 음성은 10%만 씁니다(NEG_SAMPLE_RATE = 0.1). 클릭이 워낙 희소해서 음성을 줄여도 양성 신호는 그대로 살아있고, 학습 데이터가 1/10 수준으로 줄어 LR 학습이 빨라집니다.
+재보정은 recalibrate() 함수에서 p / (p + (1-p)/w) 식으로 합니다. downsampling 때문에 모델이 출력하는 raw pCTR은 실제보다 부풀려져 있는데, 이 식으로 원래 분포로 되돌립니다. 입찰 시뮬레이션에는 보정된 pCTR을 넘깁니다(sim_input의 pCTR 컬럼). raw도 pCTR_raw로 같이 저장해서 비교 가능합니다.
+calibration plot은 calibration.png로 저장됩니다. 보정 전/후를 나란히 그려서, 가로축 예측 pCTR vs 세로축 실제 CTR이 대각선(perfect)에 얼마나 붙는지 보여줍니다. 보정 전은 점들이 대각선 아래로 처지고(과대예측), 보정 후는 대각선에 붙어야 정상입니다.
+실행 후 확인 포인트는 출력의 세 줄입니다. avg pCTR (cal)이 실제 CTR과 비슷해지는지, logloss (cal)이 logloss (raw)보다 낮아지는지, 그리고 calibration.png에서 보정 후 점들이 대각선에 붙는지입니다. 이 세 개가 다 맞으면 보정이 제대로 된 겁니다.
+참고로 02는 v2지만 01(데이터 준비)과 03(입찰 시뮬레이션)은 그대로 쓰면 됩니다. 03은 이미 sim_input의 pCTR 컬럼(이제 보정된 값)을 읽으니 수정 불필요합니다.
+실행 결과랑 calibration.png 붙여주시면 보정이 잘 됐는지 같이 보겠습니다.
+
+(ads_venv) PS C:\Users\swson23\Desktop\test\ads_prediction> python .\02_train_ctr.py
+loaded: 3,083,056 rows
+train full: 2,635,563 (pos 2,096, neg 2,633,467)
+train down: 265,443 (pos 2,096, neg 263,347, pos rate 0.79%)
+test      : 447,493 (pos 356)
+building matrices...
+training LR (on downsampled data)...
+C:\Users\swson23\Desktop\test\ads_prediction\ads_venv\Lib\site-packages\sklearn\linear_model\_logistic.py:1184: FutureWarning: 'n_jobs' has no effect since 1.8 and will be removed in 1.10. You provided 'n_jobs=-1', please leave it unspecified.
+  warnings.warn(msg, category=FutureWarning)
+
+=== CTR 모델 평가 (test = 6/12) ===
+AUC: 0.9897  (보정은 AUC에 영향 없음)
+실제 CTR        : 0.0796%
+avg pCTR (raw)  : 0.4479%   <- 부풀려짐
+avg pCTR (cal)  : 0.1168%   <- 실제 CTR에 근접해야 정상
+logloss (raw)   : 0.00531
+logloss (cal)   : 0.00169   <- 더 낮아야 정상
+
+Saved calibration plot: C:\Users\swson23\Desktop\test\ads_prediction\ipinyou.contest.dataset\processed\calibration.png
+Saved sim input: C:\Users\swson23\Desktop\test\ads_prediction\ipinyou.contest.dataset\processed\sim_input_1458.parquet
+
+다운이랑 전 후 차이가 뭐야
+
+오전 9:57
+「다운샘플링 전 vs 후」의 차이를 묻는 거로 이해했습니다. 두 가지 축에서 정리하겠습니다.
+
+1. 학습 데이터 구성 (다운샘플링 전/후)
+
+다운샘플링 전	다운샘플링 후
+positive (클릭)	약 2,454건 (전부)	약 2,454건 (전부, 그대로)
+negative (비클릭)	약 300만 건	약 30만 건 (10%만)
+총 학습 데이터	약 300만 건	약 30만 건
+학습셋 내 클릭 비율	0.08% (실제)	약 0.8% (10배 부풀려짐)
+학습 속도	느림	빠름 (1/10)
+positive는 그대로 두고 negative만 줄입니다. 그래서 데이터 양은 1/10로 줄지만 클릭 신호는 보존됩니다. 대신 클릭 비율이 인위적으로 올라갑니다.
+
+2. 모델이 출력하는 pCTR (재보정 전/후)
+
+여기가 더 헷갈리는 부분입니다. 다운샘플링한 데이터로 학습하면 모델의 출력(raw pCTR)이 부풀려져 있습니다. 그래서 재보정으로 되돌립니다.
+
+재보정 전 (raw)	재보정 후 (calibrated)
+avg pCTR	약 0.8% (실제의 10배)	약 0.08% (실제 CTR에 근접)
+AUC (순위 성능)	동일	동일 (보정은 순위 안 바꿈)
+logloss	높음 (확률 틀림)	낮음 (확률 정확)
+입찰가 계산	왜곡됨 (과대입찰)	정상
+
+"AUC 0.99가 나와서 leakage를 의심했고, CreativeID가 클릭과 과결합된 걸 발견해 제거했더니 0.8x로 내려왔다"
+
+오전 10:03Claude 응답: 보정 효과가 그림으로 명확히 나옵니다.보정 효과가 그림으로 명확히 나옵니다.
+왼쪽(보정 전)은 model 선이 대각선(perfect) 한참 아래에 처져 있습니다. 예측 pCTR 0.8 구간인데 실제 CTR은 0.27밖에 안 됩니다. 즉 모델이 확률을 과대예측하고 있습니다. 다운샘플링으로 클릭 비율이 부풀려진 게 그대로 출력에 반영된 상태입니다.
+오른쪽(보정 후)은 model 선이 대각선에 훨씬 가깝게 붙었습니다. 재보정이 과대예측을 끌어내려서 예측 확률과 실제 CTR이 대체로 일치하게 됐습니다. p/(p+(1-p)/w) 보정이 의도대로 작동한 겁니다.
+다만 두 가지 짚을 점.
+첫째, 가로축이 0~1.0까지 펼쳐져 있습니다. 1458의 실제 CTR이 0.08%인데 예측 pCTR이 0.8씩 나온다는 건, 모델이 일부 노출에 "클릭 확률 80%"를 주고 있다는 뜻입니다. 이건 AUC 0.99와 같은 현상입니다. 모델이 특정 노출들을 거의 확실한 클릭으로 분류하고 있고, 실제로 그게 맞아떨어지고 있습니다(오른쪽에서 예측 0.75 구간의 실제 CTR도 0.72로 높음). 정상적인 CTR 모델이라면 예측 pCTR이 기껏해야 수 % 안에서 놀아야 하는데, 80%가 나오는 건 데이터에 클릭을 거의 결정짓는 신호가 있다는 신호입니다. diag_leakage.py 결과가 이걸 설명해줄 겁니다.
+둘째, 오른쪽 고확률 구간(0.75~0.95)에서 model 선이 대각선 아래에서 평평해집니다. 이 구간은 여전히 약간 과대예측입니다. 다만 이 구간에 들어가는 노출 수가 적어서(고pCTR은 드묾) 전체 calibration엔 큰 영향 없습니다.
+calibration 자체는 잘 됐습니다. 이제 남은 건 AUC 0.99 / 예측 pCTR 0.8의 정체를 diag_leakage.py로 확인하는 겁니다. 그거 결과 붙여주시면 정상인지 누수인지 판정하겠습니다.
+
+
+피처 하나씩 제거 시 AUC (많이 떨어질수록 그 피처가 핵심/누수):
+  -time     : 0.9884  (Δ +0.0013)
+  -region   : 0.9899  (Δ -0.0002)
+  -city     : 0.9909  (Δ -0.0011)
+  -adx      : 0.9897  (Δ -0.0000)
+  -domain   : 0.9905  (Δ -0.0007)
+  -slot     : 0.9903  (Δ -0.0006)
+  -size     : 0.9897  (Δ -0.0000)
+  -vis      : 0.9899  (Δ -0.0001)
+  -fmt      : 0.9897  (Δ -0.0000)
+  -floor    : 0.9897  (Δ +0.0000)
+  -creative : 0.9897  (Δ -0.0000)
+  -ua       : 0.9850  (Δ +0.0047)
+C:\Users\swson23\Desktop\test\ads_prediction\ads_venv\Lib\site-packages\sklearn\linear_model\_sag.py:348: ConvergenceWarning: The max_iter was reached which means the coef_ did not converge
+  warnings.warn(
+  -tag      : 0.7092  (Δ +0.2805)
+
+가장 영향 큰 피처: tag (제거 시 AUC 0.7092)
+10006    Long-term interest/news
+10024    Long-term interest/eduation
+10031    Long-term interest/automobile
+10048    Long-term interest/real estate
+10052    Long-term interest/IT
+10057    Long-term interest/electronic game
+10059    Long-term interest/fashion
+10063    Long-term interest/entertainment
+10067    Long-term interest/luxury
+10074    Long-term interest/home and lifestyle
+10075    Long-term interest/health
+10076    Long-term interest/food
+10077    Long-term interest/divine
+10079    Long-term interest/motherhood&parenting
+10083    Long-term interest/sports
+10093    Long-term interest/travel&outdoors
+10102    Long-term interest/social
+10684    In-market/3c product
+11092    In-market/appliances
+11278    In-market/clothing、shoes&bags
+11379    In-market/Beauty& Personal Care
+11423    In-market/household&home improvement
+11512    In-market/infant&mom products
+11576    In-market/sports item
+11632    In-market/outdoor
+11680    In-market/health care products
+11724    In-market/luxury
+11944    In-market/real estate
+13042    In-market/automobile
+13403    In-market/finance
+13496    In-market/travel
+13678    In-market/education
+13776    In-market/service
+13800    Long-term interest/art&photography&design
+13866    Long-term interest/online literature
+13874    In-market/electronic game
+14273    Long-term interest/3c
+16593    In-market/book
+16617    In-market/medicine
+16661    In-market/food&drink
+16706    Long-term interest/culture
+16751    Long-term interest/sex
+10110    Demographic/gender/male
+10111    Demographic/gender/famale
+
+user.profile.tags.en.txt
+
+태그별 클릭률 (CTR 높은 순):
+  tag     imp  clk      ctr
+11278    4962 1707 0.344015
+13874    1579    8 0.005066
+11379    8098   30 0.003705
+16661    5085   18 0.003540
+11423    5535   18 0.003252
+11680     818    2 0.002445
+10111  818050 1455 0.001779
+16617    3879    5 0.001289
+16593    2056    2 0.000973
+13496   32001   26 0.000812
+13866  642226  501 0.000780
+13776  143311  111 0.000775
+10684   47772   36 0.000754
+16706    4001    3 0.000750
+10057  526391  364 0.000692
+10077  298199  206 0.000691
+10024  683218  470 0.000688
+10063 1914682 1312 0.000685
+13678   46906   32 0.000682
+10074   45309   30 0.000662
+
+전체 평균 CTR: 0.000795
+
+즉 0.99는 단일 태그 암기가 아니라:
+
+11278 (CTR 34%) → 클릭의 70% 잡음 → 단독 AUC 0.85
+
+
+다른 in-market 태그들 → 나머지 클릭 상당수 추가로 걸러냄 → 0.85에서 0.99로 끌어올림
+
+"AUC 0.99를 발견하고 누수를 의심해 4단계로 검증했더니, 누수가 아니라 in-market 타게팅 신호(11278, CTR 34%)의 누적 효과였다. 다만 이 강신호 때문에 모델·입찰 전략의 변별력이 사라져서, 논문들이 왜 이 설정을 피하는지 이해했다. 입찰 전략 비교를 위해 의도적으로 신호를 제한한 설정에서 실험을 설계했다."
+
+ "이 데이터에선 강한 태그가 변별력을 죽였지만, 현실 멀티캠페인·비정상 환경에선 태그가 핵심이면서도 어려운 문제로 남는다"
+
+1458  train_ds 265,443 (pos 2096)  test 447,493 (pos 356)
+C:\Users\swson23\Desktop\test\ads_prediction\ads_venv\Lib\site-packages\sklearn\linear_model\_sag.py:348: ConvergenceWarning: The max_iter was reached which means the coef_ did not converge
+  warnings.warn(
+(A) 태그 전부 유지        : AUC 0.9897
+(B) 11278만 제거          : AUC 0.8236
+(C) 태그 전부 제거        : AUC 0.7092
+11278 단독 기여 (A-B): +0.1661
+나머지 태그 기여 (B-C): +0.1144
+
+태그 전부 제거(0.71) 가 나을 거 같아...
+논문에서 그렇게 한 이유가 있지 않을까?
+그리고 현실에서 저렇게 0.99가 나올 거 같진 않아
+
+=== 파라미터 탐색 (budget = full/8 = 3,787,138) ===
+
+[Constant] c sweep
+  c=  40: clicks=  51 won=127,026 win_rate=0.284 eCPC=49833.67
+  c=  60: clicks=  49 won=112,772 win_rate=0.252 eCPC=77288.49
+  c=  80: clicks=  57 won= 79,830 win_rate=0.178 eCPC=66441.0
+  c= 100: clicks=  59 won= 76,964 win_rate=0.172 eCPC=64188.73
+  c= 120: clicks=  58 won= 74,187 win_rate=0.166 eCPC=65295.45
+  c= 150: clicks=  52 won= 70,026 win_rate=0.157 eCPC=72829.52
+
+[Linear] base sweep
+  base=  60: clicks=  87 won= 73,955 win_rate=0.165 eCPC=43530.31
+  base=  80: clicks=  72 won= 70,774 win_rate=0.158 eCPC=52599.12
+  base= 100: clicks=  70 won= 69,157 win_rate=0.154 eCPC=54101.96
+  base= 120: clicks=  67 won= 67,328 win_rate=0.150 eCPC=56524.43
+  base= 150: clicks=  64 won= 65,313 win_rate=0.146 eCPC=59174.02
+  base= 200: clicks=  57 won= 63,402 win_rate=0.142 eCPC=66440.96
+  base= 300: clicks=  57 won= 60,688 win_rate=0.136 eCPC=66441.0
+
+[ORTB] lambda sweep (c=50)
+  lam=1e-05: clicks=  89 won= 88,561 win_rate=0.198 eCPC=31894.55
+  lam=5e-06: clicks=  92 won= 87,930 win_rate=0.197 eCPC=41164.52
+  lam=1e-06: clicks=  58 won= 66,366 win_rate=0.148 eCPC=65295.45
+  lam=5e-07: clicks=  56 won= 61,510 win_rate=0.138 eCPC=67627.45
+  lam=1e-07: clicks=  53 won= 59,055 win_rate=0.132 eCPC=71455.42
+
+선택: Linear base=60, ORTB lambda=5e-06
+
+=== 예산별 전략 비교 (획득 클릭 수) ===
+      budget   Constant     Linear       ORTB
+full/64  (   473,392)          5         12         14
+full/32  (   946,784)         15         27         28
+full/16  ( 1,893,569)         33         45         45
+full/8   ( 3,787,138)         57         87         92
+full/4   ( 7,574,275)        101        166        172
+full/2   (15,148,550)        208        230        186
+
+어떻게 생각해? 그리고 여기서 더 해 볼만한 게 있니?
+
+오후 2:01
+제 생각엔 파라미터 범위부터 넓히고, 그다음 시각화가 맞습니다. 순서가 중요합니다. 지금 Linear와 ORTB 둘 다 최적점이 탐색 범위 끝에 걸려 있어서(Linear는 base 60에서 최소값 쪽, ORTB는 lambda 5e-06에서 큰 값 쪽), 현재 숫자가 각 전략의 진짜 실력이 아닐 수 있습니다. 최적점을 제대로 잡기 전에 그래프를 그리면, 덜 튜닝된 결과를 그리게 됩니다. 그래서 범위 넓히기가 먼저입니다.
+
+그리고 더 해볼 것도 꽤 있습니다. 가치 있는 순서대로 정리하겠습니다.
+
+1순위: 파라미터 범위 넓히기 (필수)
+
+Linear base를 40, 50까지 낮추고, ORTB lambda를 2e-05, 5e-05, 1e-04까지 키워서 각 전략의 최적점을 범위 안에 가두는 것. 이게 안 되면 비교가 불공정합니다. 반드시 해야 합니다.
+
+2순위: 예산별 최적 파라미터 재탐색
+
+지금은 full/8에서 찾은 파라미터를 모든 예산에 그대로 씁니다. 그런데 예산이 빡빡할 때와 넉넉할 때 최적 base/lambda가 다릅니다. 예산마다 파라미터를 다시 탐색해서 "각 예산에서 각 전략이 낼 수 있는 최선"으로 비교하면 훨씬 공정합니다. Constant도 지금 80 고정인데 예산별로 다시 잡아야 하고요.
+
+3순위: 평가 지표 추가
+
+지금은 획득 클릭 수만 봅니다. 여기에 두 개를 더하면 입찰 분석이 풍부해집니다. eCPC(클릭당 비용)는 이미 계산되니 표에 넣고, win rate(낙찰률)도 추가합니다. "ORTB가 클릭은 더 많이 따면서 eCPC는 더 낮다"는 식의 효율 스토리가 됩니다.
+
+4순위: 시각화
+
+위가 정리되면 예산(x축, 로그 스케일) vs 획득 클릭(y축)으로 세 전략 곡선을 그립니다. 빡빡한 구간에서 ORTB가 위, 넉넉한 구간에서 뒤집히는 게 한눈에 보입니다. Zhang 논문의 대표 그래프와 같은 형태라 포트폴리오에 강합니다.
+
+그 이상 더 해볼 만한 것 (여력 되면)
+
+bid landscape 모델링. 지금은 "내 입찰가 ≥ 시장가면 낙찰"로 단순화했는데, 실제 RTB는 시장가를 모르는 상태에서 입찰합니다. 그래서 win rate를 입찰가의 함수로 추정하는 win rate model(예: w(bid) = bid/(bid+c))을 만들고, 그걸 ORTB 유도에 넣는 게 논문의 정식 버전입니다. 이걸 하면 "교과서 ORTB를 제대로 구현했다"는 깊이가 생깁니다. 다만 난이도가 한 단계 올라갑니다.
+
+또 하나는 KM(Kaplan-Meier) 기반 시장가 분포 추정인데, 이건 입찰에서 진 경우의 시장가를 censored data로 다루는 기법입니다. iPinYou 입찰 논문의 표준이지만 여기까지 가면 범위가 꽤 커집니다.
+
+제 추천은 1~4순위까지 하고 마무리하는 겁니다. 그게 "CTR 예측 → 입찰 전략 → 예산 제약 평가"라는 완결된 스토리를 만들고, 각 전략을 공정하게 튜닝해서 비교한 단단한 결과가 됩니다. bid landscape 모델링(5순위)은 시간 여유가 있고 더 깊이 보여주고 싶을 때 추가하는 보너스고요.
+
+1~3순위를 한 스크립트에 합쳐서 03을 업그레이드한 다음 4순위 시각화까지 한 번에 갈까요? 아니면 1순위만 빠르게 확인하고 단계적으로 갈까요?
+
+왼쪽 (예산별 클릭)
+예상한 패턴이 나옵니다. 빡빡한 구간부터 넉넉한 구간까지 Linear와 ORTB가 Constant를 일관되게 앞섭니다. 다만 예산마다 파라미터를 재탐색하니 Linear와 ORTB가 거의 겹칩니다. 이전(고정 파라미터)에선 빡빡한 구간에서 ORTB가 Linear를 약간 앞섰는데, 각자 최적 튜닝하니 둘 다 비슷한 상한에 도달한 겁니다. 이것도 정당한 결과입니다. "충분히 튜닝하면 Linear와 ORTB의 성능 차이는 작고, 둘 다 Constant 대비 우위가 명확하다"는 결론이고요. full/2(맨 오른쪽)에서 Constant만 208로 처지고 Linear·ORTB가 260으로 붙는 것도 일관됩니다.
+가운데 (eCPC)
+빡빡한 구간(왼쪽)에서 ORTB의 eCPC가 Linear보다 낮습니다. 클릭당 비용이 싸다는 거고, ORTB의 효율 우위가 여기서 드러납니다. 예산이 커질수록(오른쪽) 둘이 수렴하다가 full/2에서 역전됩니다. 이게 왼쪽 그래프의 클릭 수와 연결됩니다. 예산 빡빡할 땐 ORTB가 효율적으로 클릭을 모으고, 넉넉해지면 그 장점이 사라진다는 일관된 스토리입니다.
+오른쪽 (bid landscape)
+여기가 짚을 점이 있습니다. 모델(주황 선)이 경험적 점들(파랑)을 잘 못 따라갑니다. 저bid 구간(0~50)에선 모델이 위로 뜨고, 고bid 구간(80~)에선 경험적 점들이 0.9까지 빠르게 오르는데 모델은 0.8 근처에서 완만합니다. w(b)=b/(b+c0) 형태가 이 시장가 분포에 잘 안 맞는다는 뜻입니다.
+이유는 시장가 분포 모양 때문입니다. b/(b+c0)는 완만하게 증가하는 곡선인데, 실제 1458 시장가는 특정 구간(50~80)에 몰려 있어서 그 구간에서 win rate가 급하게 오릅니다. 단순한 b/(b+c0) 한 개 파라미터로는 이 급경사를 표현 못 합니다.
+이게 바로 앞서 말한 KM 추정이 필요한 지점입니다. b/(b+c0)라는 강한 가정 대신, 실제 시장가 분포를 데이터에서 직접 추정(KM)하면 경험적 점들에 훨씬 잘 맞습니다. 지금 그림은 "단순 win rate model의 한계"를 보여주는 거고, KM으로 가면 이게 개선됩니다.
+그래서 다음 단계가 자연스럽게 정해집니다. 04로 KM 기반 시장가 분포 추정 + 그걸 쓰는 정식 ORTB를 만들면, 오른쪽 그래프의 적합이 좋아지고 ORTB가 시장가를 모르는 상태에서도 제대로 입찰하게 됩니다.
+지금 결과도 그 자체로 완结된 스토리입니다. "단순 win rate model은 시장가 분포를 충분히 못 잡는다"는 한계를 그림으로 보여줬으니, KM이 왜 필요한지에 대한 동기까지 마련된 셈이고요.
+04로 KM + 정식 ORTB 만들어서 이 landscape 적합을 개선할까요?
+
+(ads_venv) PS C:\Users\swson23\Desktop\test\ads_prediction> python .\03_bid_simulation.py
+test impressions : 447,493
+available clicks : 356
+cost to win all  : 30,297,100
+avg market price : 67.7
+avg pCTR         : 0.000796
+
+[bid landscape] win rate model w(b)=b/(b+c0),  c0 ≈ 54.9
+
+=== 예산별 전략 비교 (각 예산에서 파라미터 재탐색) ===
+          budget                  Const                   Linear                       ORTB
+1/64  (     473,392)  clk= 18(30) eCPC=26300  clk= 22(30) eCPC=21518  clk= 20(1e-05) eCPC=23670
+1/32  (     946,784)  clk= 25(20) eCPC=37871  clk= 31(30) eCPC=30541  clk= 33(1e-05) eCPC=28690
+1/16  (   1,893,569)  clk= 41(30) eCPC=42215  clk= 58(30) eCPC=32648  clk= 64(1e-05) eCPC=29587
+1/8   (   3,787,138)  clk= 59(100) eCPC=64189  clk=101(30) eCPC=37496  clk= 92(5e-06) eCPC=41165
+1/4   (   7,574,275)  clk=109(100) eCPC=69489  clk=174(50) eCPC=43530  clk=172(5e-06) eCPC=44036
+1/2   (  15,148,550)  clk=208(80) eCPC=72830  clk=262(100) eCPC=57819  clk=259(2e-06) eCPC=58489
+
+04입니다. 두 가지를 합쳤습니다.
+KM 추정(km_winrate)은 진 경매의 시장가를 censored로 다뤄서 win rate 곡선 W(b)=P(시장가≤b)를 비모수로 복원합니다. 진짜 RTB에선 진 경매의 시장가를 모르니, 학습 시점 입찰 정책이 50%만 이겼다고 가정하고 나머지를 censoring으로 부여해 KM을 시연합니다. censoring이 없으면 KM은 경험적 CDF와 같아지는데, 이 코드는 censoring을 줘서 KM이 censored data를 어떻게 보정하는지 보여줍니다.
+정식 ORTB(find_lambda_for_budget)는 시장가를 모른다고 가정하고, KM win rate로 기대 비용을 계산해서 예산과 맞는 lambda를 이분탐색으로 찾습니다. 03처럼 실제 시장가를 보고 그리드 서치하는 게 아니라, 추정한 win rate만으로 lambda를 정하는 현실적인 정보 구조입니다.
+비교는 두 축입니다. 왼쪽 그래프는 win rate model 세 개(경험적 CDF / KM / 03의 b/(b+c0))를 겹쳐서, KM이 단순 모델보다 실제 분포에 잘 맞는지 보여줍니다. 오른쪽은 KM 기반 정식 ORTB vs 오라클 그리드 ORTB의 예산별 클릭을 비교합니다.
+해석 포인트를 미리 정리하면.
+왼쪽에서 KM 곡선(점선)과 경험적 CDF(실선)가 b/(b+c0)(점점선)보다 서로 가까우면, "단순 파라메트릭 모델의 한계를 비모수 KM이 메운다"가 확인됩니다.
+오른쪽에서 KM-ORTB가 오라클 그리드에 얼마나 근접하는지가 핵심입니다. 오라클은 실제 시장가를 보고 최적 lambda를 고른 "치트키"라 상한입니다. KM-ORTB가 시장가를 모르면서도 거기 근접하면, "정보 제약 하에서도 잘 작동한다"는 강한 결과입니다. 격차가 크면 KM 추정이나 lambda 탐색을 개선할 여지가 있다는 뜻이고요.
+한 가지 미리 짚으면, expected_cost_and_win의 기대 비용을 sum(bid×winprob)로 단순화했습니다. 정확히는 이긴 경우의 조건부 기대 시장가 E[market|market≤bid]를 써야 하는데, KM에서 그걸 적분하는 건 복잡해서 근사했습니다. 그래서 KM-ORTB의 lambda가 약간 보수적으로/공격적으로 치우칠 수 있습니다. 결과 보고 클릭이 오라클 대비 많이 처지면 이 근사를 정밀화하겠습니다.
+돌린 결과랑 km_ortb.png 붙여주세요.
+
+
+네, 이분탐색입니다. λ가 어떻게 결정되는지 단계별로 보겠습니다.
+왜 이분탐색을 쓰나
+λ는 "예산을 딱 맞게 쓰도록" 정하는 값입니다. 문제는 λ에서 예산으로 가는 식을 직접 못 푼다는 겁니다. λ를 정하면 → 모든 노출의 bid가 정해지고 → 그 bid로 입찰하면 얼마 쓸지(기대 비용)가 나오는데, 이 관계가 복잡해서 "예산 = X가 되는 λ"를 공식으로 못 구합니다. 그래서 λ를 이리저리 넣어보며 맞는 값을 찾아야 합니다.
+단조성이 핵심
+이분탐색이 가능한 건 λ와 비용 사이에 단조 관계가 있기 때문입니다.
+λ 크다 → bid 전체적으로 낮음 → 적게 이김 → 비용 적게 씀
+λ 작다 → bid 전체적으로 높음 → 많이 이김 → 비용 많이 씀
+λ가 커지면 비용이 단조 감소합니다. 한 방향으로만 움직이니까, 이분탐색으로 "비용 = 예산"인 지점을 빠르게 좁힐 수 있습니다.
+이분탐색 과정
+04의 find_lambda_for_budget가 하는 일입니다.
+pythonlam_lo, lam_hi = 1e-7, 1e-3   # λ 탐색 범위
+for _ in range(40):
+    lam = sqrt(lam_lo * lam_hi)          # 중간값 (로그 스케일)
+    exp_cost = 기대비용(lam)              # 이 λ로 얼마 쓸지 추정
+    if exp_cost > budget:                # 예산 초과
+        lam_lo = lam                     # → λ 키워서 비용 낮춤
+    else:                                # 예산 미달
+        lam_hi = lam                     # → λ 줄여서 비용 높임
+매 단계마다 범위를 절반으로 줄입니다. 기대 비용이 예산보다 크면 "λ를 더 키워야 한다"(비용 낮추려고), 작으면 "λ를 줄여야 한다"(예산 더 쓰려고). 40번 반복하면 범위가 2^40분의 1로 좁혀져서 사실상 정확한 λ에 수렴합니다.
+여기서 기대 비용을 어떻게 아나
+이게 KM이 들어오는 지점입니다. 시장가를 모르는 상태에서 "이 λ로 입찰하면 얼마 쓸지"를 추정해야 하는데, 그걸 KM win rate로 계산합니다.
+각 노출의 bid 계산 → KM win rate W(bid)로 "이길 확률" 추정
+→ 기대 비용 = Σ (bid × 이길확률)
+즉 실제 시장가를 보지 않고, KM으로 추정한 win rate만으로 "이 λ면 대략 이만큼 쓰겠다"를 계산해서 예산과 비교하는 겁니다. 이게 현실적인 정보 구조(시장가 모름)를 지키는 핵심이고요.
+정리
+λ 결정 = "예산을 다 쓰는 λ"를 이분탐색으로 찾기. 가능한 이유는 λ↑면 비용↓이라는 단조성. 각 λ의 비용은 KM win rate로 추정(시장가 모르니까). 40번 반복으로 수렴.
+앞서 출력에서 예산별 λ가 빡빡(1/64) 3.8e-05 → 넉넉(1/2) 3.7e-06으로 단조 감소한 게 이 결과입니다. 예산이 많을수록 λ가 작아져서(bid 높여서) 더 공격적으로 입찰하는 거죠.
+다만 앞서 말한 대로 지금 기대 비용을 Σ(bid×winprob)로 근사해서, 빡빡한 구간에서 λ가 약간 부정확합니다. 그게 KM-ORTB가 오라클보다 빡빡한 구간에서 더 처진 이유고요. 이 근사를 E[market|win] 기반으로 정밀화하면 개선됩니다.
+censored 데이터(진 경매)는 사건으로 안 세지만, n_k(위험집합)에서는 빠집니다. 이렇게 절단된 관측의 정보를 부분적으로 반영합니다. 그래서 진 경매를 버리지도, 정확한 값으로 쓰지도 않고 "중간"으로 처리하는 거죠.
+win rate는 W(b) = 1 - S(b) = "시장가가 b 이하일 확률" = "b로 입찰하면 이길 확률"입니다.
+그럼 코드의 50%는 뭐냐
+여기가 시연용 단순화입니다. 손승우님이 받은 iPinYou imp 로그는 iPinYou가 과거에 이긴 노출들이라, 사실 시장가가 다 관측돼 있습니다. 진 경매(censored) 데이터가 없어요. 그러면 KM이 그냥 경험적 CDF랑 똑같아져서, KM을 쓰는 의미가 안 보입니다.
+그래서 코드가 일부러 "이 데이터 중 50%만 이긴 거고 나머지 50%는 진 거(censored)"라고 가정을 넣은 겁니다(win_prob_at_train=0.5). 무작위로 절반을 censored로 표시해서, "절단된 데이터가 섞이면 KM이 어떻게 복원하나"를 시연하는 거죠.
+왼쪽 그래프에서 KM(주황 점선)이 경험적 CDF(파랑 실선)보다 아래로 처진 게 그 효과입니다. 50%를 censored로 빼니까 win rate를 좀 보수적으로(낮게) 추정한 겁니다.
+그래서 이게 맞는 방식이냐
+시연으로는 맞는데, 현실 데이터로 제대로 하려면 두 가지 중 하나여야 합니다.
+첫째, censoring을 무작위 50%로 인위적으로 주는 게 아니라, 실제 win/lose 라벨로 정의해야 합니다. iPinYou bid 로그(imp의 상위 집합, 입찰했지만 진 것도 포함)를 쓰면 진짜 censored 데이터가 생깁니다. 그러면 50% 같은 임의값 없이 데이터 자체의 win/lose로 KM을 돌립니다.
+둘째, 지금처럼 시연만 할 거면 50%는 그냥 "censored가 이만큼 있다고 치자"는 데모 파라미터라고 명시하면 됩니다.
+정리하면. KM은 "진 경매의 시장가를 모름(censored)"을 다뤄서 시장가 분포를 복원하는 생존분석 기법이고, 가격을 낮은 것부터 훑으며 생존확률을 곱해 win rate W(b)를 만듭니다. 코드의 50%는 imp 로그엔 censored가 없어서, KM 작동을 보여주려고 인위적으로 절반을 절단 처리한 시연용 값입니다. 제대로 하려면 bid 로그의 실제 win/lose로 censoring을 정의해야 합니다.
+bid 로그를 써서 진짜 censored 데이터로 KM을 돌리는 버전으로 갈까요? 그러면 50% 가정 없이 실제 입찰 데이터의 win/lose로 win rate를 추정하게 됩니다. 다만 bid 로그가 imp보다 훨씬 커서(수백 MB bz2) 처리 시간이 늘어납니다.
+
+한 가지 더: 데이터의 한계
+그리고 iPinYou 데이터엔 더 근본적인 한계가 있습니다. 우리는 iPinYou가 이긴 경매의 2등가만 봅니다. iPinYou가 진 경매의 2등가(=그때 이긴 사람이 낸 가격)는 안 보입니다. 게다가 2등가만 보이지, 3등·4등이 얼마 불렀는지는 전혀 모릅니다. 그래서 우리가 복원하는 "시장가 분포"는 사실 iPinYou가 이긴 경매들의 2등가 분포라는, 이미 한 번 걸러진 데이터입니다. 이게 앞서 얘기한 selection bias와도 연결됩니다.
+정리하면. 80으로 이겨서 70 냈으면 70은 2등 가격이고, 노출의 고정 가치가 아니라 그 경매의 경쟁 결과입니다. 2등이 달랐으면 다른 값이 나옵니다. 그래서 win rate가 확정이 아니라 확률이고, KM이 추정하는 건 그 2등가의 분포입니다. 손승우님 직관이 정확했고, 이건 RTB 입찰 모델링의 본질적인 부분입니다.
+그러면 01c 돌리고 뭐 뭐 돌려?
+
+오후 2:42
+01c 돌린 다음 06만 돌리면 됩니다. 이 둘이 bid 로그 기반 진짜 KM 한 세트입니다.
+
+01c_prepare_bidlog.py   → bidlog_1458.parquet 생성 (win/lose 라벨)
+06_km_real.py           → 진짜 KM, naive와 비교, km_real.png
+01c는 bid 로그가 커서(7일 3GB bz2) 시간이 좀 걸립니다. 끝나면 win_rate가 몇 %로 나오는지 확인하세요(1458이 과거에 입찰 중 몇 % 이겼는지). 그다음 06 돌리면 진짜 KM 곡선 vs naive 곡선 비교가 나옵니다.
+
+참고로 지금까지 만든 스크립트 전체 순서를 정리하면 이렇습니다.
+
+핵심 파이프라인(입찰 최적화 본체):
+
+01_prepare_data.py       1458 imp+clk → 학습 데이터
+02_train_ctr.py          CTR 모델 (tag 제외, AUC 0.71)
+03_bid_simulation.py     Constant/Linear/ORTB 예산별 비교
+04_km_ortb.py            KM landscape + 정식 ORTB (오라클 근접)
+분석/심화(곁가지):
+
+01b_prepare_season2_all.py  season2 전체
+02b_train_season2.py        캠페인별 AUC, AdvertiserID 비교
+05_ortb2_csensitivity.py    ORTB2 + c 민감도
+01c_prepare_bidlog.py  ← 지금
+06_km_real.py          ← 지금
+진단용(일회성, 안 돌려도 됨):
+
+diag_leakage.py, diag_11278.py, analyze_click_tags.py
+
+pythonlam_lo, lam_hi = 1e-7, 1e-3   # λ 탐색 범위
+for _ in range(40):
+    lam = sqrt(lam_lo * lam_hi)          # 중간값 (로그 스케일)
+    exp_cost = 기대비용(lam)              # 이 λ로 얼마 쓸지 추정
+    if exp_cost > budget:                # 예산 초과
+        lam_lo = lam                     # → λ 키워서 비용 낮춤
+    else:                                # 예산 미달
+        lam_hi = lam     여기서 기대비용 계산법오후 2:47Claude 응답: 좋습니다.좋습니다. 기대비용 계산이 KM이 실제로 쓰이는 핵심 부분이라 단계별로 보겠습니다. 코드의 expected_cost_and_win 함수입니다.
+목표
+"λ를 이 값으로 쓰면, 모든 노출에 입찰했을 때 총 얼마 쓸까"를 시장가를 모르는 채로 추정하는 겁니다. 시장가를 모르니 KM이 추정한 win rate를 씁니다.
+단계별 계산
+테스트셋 노출이 N개 있다고 하고, 노출 하나하나에 대해 계산해서 다 더합니다.
+1단계: 각 노출의 입찰가 계산
+주어진 λ로 모든 노출의 ORTB 입찰가를 구합니다.
+pythonbids = sqrt(c/λ × pCTR + c²) - c
+노출마다 pCTR이 다르니 입찰가도 다 다릅니다. 예를 들어 노출 3개면 [85, 50, 120] 이런 식.
+2단계: 각 입찰가의 이길 확률 (KM)
+각 입찰가로 이길 확률을 KM win rate 곡선에서 읽습니다.
+pythonwprob = W(bids)   # KM 곡선에서 조회
+예: bid 85 → W(85)=0.6, bid 50 → W(50)=0.3, bid 120 → W(120)=0.75.
+3단계: 각 노출에서 이겼을 때 낼 돈 (여기가 핵심)
+이게 앞서 손승우님이 짚었던 부분입니다. 이겼을 때 내는 건 입찰가(bid)가 아니라 시장가(2등가)고, 그건 항상 bid보다 작습니다(2nd price). 그래서 "이겼을 때 낼 평균 금액"을 KM 분포에서 계산합니다.
+pythonE[market | market ≤ bid]   # bid 이하 구간의 평균 시장가
+KM 곡선에서 "bid보다 싼 구간의 시장가 가중평균"을 구합니다. 예: bid 85로 이기면 실제론 평균 50쯤 낸다, 이런 값.
+4단계: 노출별 기대비용 = 이길 확률 × 이겼을 때 낼 돈
+python노출별 기대비용 = wprob × E[market|win]
+예시:
+노출1: bid 85,  W=0.6, E[market|win]=50 → 0.6 × 50 = 30
+노출2: bid 50,  W=0.3, E[market|win]=28 → 0.3 × 28 = 8.4
+노출3: bid 120, W=0.75,E[market|win]=70 → 0.75 × 70 = 52.5
+각 노출에서 "평균적으로 이만큼 쓰겠다"는 기대값입니다. 이길 확률(못 이기면 0원)과 이겼을 때 낼 돈을 곱한 거죠.
+5단계: 전부 더하면 총 기대비용
+pythonexp_cost = Σ (wprob × E[market|win])
+         = 30 + 8.4 + 52.5 + ... (모든 노출)
+이게 "이 λ로 입찰하면 총 이만큼 쓸 것"이라는 추정치입니다.
+이분탐색과 연결
+이 exp_cost를 예산과 비교합니다.
+exp_cost > budget → 너무 많이 쓴다 → λ 키워서 입찰가 낮춤 → 비용 ↓
+exp_cost < budget → 예산 남는다 → λ 줄여서 입찰가 높임 → 비용 ↑
+λ가 바뀌면 1단계의 입찰가가 바뀌고, 그게 2~5단계를 거쳐 exp_cost를 바꿉니다. 40번 반복하면 exp_cost ≈ budget인 λ로 수렴합니다.
+중요한 점: 실제 시장가를 안 봄
+이 전체 계산에서 실제 PayingPrice를 한 번도 안 씁니다. 오직 KM이 추정한 win rate W(b)와 거기서 나온 E[market|win]만 씁니다. 이게 "시장가를 모르는 현실적 상황"을 지키는 핵심입니다. 실제 시장가는 나중에 시뮬레이션에서 평가할 때만(이겼나 졌나 판정) 쓰고, λ를 정하는 단계에선 안 봅니다.
+코드로 정리하면:
+pythondef expected_cost(p, c, lam, km_곡선):
+    bids = sqrt(c/lam × p + c²) - c        # 1단계
+    wprob = KM_winrate(bids)                # 2단계
+    cond_mean = E_market_given_win(bids)    # 3단계 (KM 분포에서)
+    exp_cost = sum(wprob × cond_mean)       # 4~5단계
+    return exp_cost
+요약하면. 기대비용 = Σ (이길 확률 × 이겼을 때 낼 평균 시장가). 이길 확률은 KM win rate에서, 이겼을 때 낼 돈은 KM 분포의 조건부 평균에서 가져옵니다. 둘 다 KM 추정값이라 실제 시장가 없이 계산되고, 그래서 λ를 현실적으로 정할 수 있습니다.
+
+20130606: bid 3,250,536  win 447,312  win_rate 13.8%
+20130607: bid 3,733,421  win 477,125  win_rate 12.8%
+20130608: bid 1,390,738  win 412,937  win_rate 29.7%
+20130609: bid 1,851,641  win 422,935  win_rate 22.8%
+20130610: bid 1,551,919  win 433,409  win_rate 27.9%
+20130611: bid 1,485,384  win 436,648  win_rate 29.4%
+20130612: bid 1,437,857  win 446,650  win_rate 31.1%
+
+총 입찰: 14,701,496
+win: 3,077,016  (20.9%)
+lose(censored): 11,624,480
+win 시 평균 시장가: 68.9
+평균 입찰가: 300.0
