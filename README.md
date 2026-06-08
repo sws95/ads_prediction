@@ -1,134 +1,141 @@
 # CTR / CVR Prediction & Bid Optimization (Criteo + Ali-CCP + iPinYou)
- 
-## 프로젝트 개요
- 
-광고 시스템의 **랭킹(예측) → 입찰(의사결정)** 흐름을 공개 데이터로 재현하는 프로젝트.
- 
-- **CTR 예측** — Criteo Display Advertising Challenge (45.8M rows)로 모델 5종 비교
-- **CTR + CVR 멀티태스크** — Ali-CCP (IJCAI-18)로 ESMM 학습 (CTCVR = CTR × CVR)
-- **입찰 최적화** *(진행 예정)* — iPinYou RTB 데이터로 Linear bidding / ORTB 실험
-## 데이터셋
- 
-### Criteo (CTR)
- 
-- 출처: Criteo Display Advertising Challenge (Kaggle)
-- 크기: 45,840,617 rows
-- Features: 13 numerical (I1\~I13) + 26 categorical (C1\~C26) + label
-- 결측값: I12(76.5%), I1/I10(45.4%), C22(76.3%), C19/C20/C25/C26(44%) 등
-### Ali-CCP (CTR + CVR)
- 
-- 출처: Ali-CCP (IJCAI-18)
-- 크기: 약 85M rows (Train 42.3M / Val 21.5M / Test 21.5M)
-- Label: CTR 0.0389, CVR(clicked 기준) 0.0054, CTCVR 0.000208 *(train 기준)*
-### iPinYou (Bidding) — 진행 예정
- 
-- 출처: iPinYou Global RTB Bidding Algorithm Competition (2013)
-- 특징: 낙찰가(winning price)가 포함된 거의 유일한 공개 RTB 데이터 → 입찰 의사결정 실험 가능
-- 용도: pCTR/pCVR 예측 결과를 입찰가로 변환하는 단계(Linear bidding, ORTB) 실험
-## 전처리
- 
-### 공통 (Criteo / Ali-CCP)
- 
-- Numerical: fillna(0) → clip(lower=0) → log1p → float32
-- Categorical: min_freq=10 미만 → unknown(0) 처리 → vocab 기반 정수 인덱스
-### Split
- 
-- **Criteo**: 시간순 정렬 기준 앞 40M → train / 뒤 5.8M → val (data leakage 방지)
-- **Ali-CCP**: 데이터셋 제공 기준 Train / Val / Test split 그대로 사용
-## 모델
- 
-| Model | 핵심 아이디어 | 논문 |
-|---|---|---|
-| LR | 선형 baseline | McMahan et al. 2013 |
-| FM | 2nd-order feature interaction | Rendle 2010 |
-| DeepFM | FM + DNN 병렬 | Guo et al. 2017 |
-| DCN v2 | Cross Network + DNN | Wang et al. 2021 |
-| AutoInt | Self-Attention 기반 interaction | Song et al. 2019 |
-| ESMM | CTR + CVR 멀티태스크 (CTCVR = CTR × CVR) | Ma et al. 2018 |
- 
-## 실험 결과
- 
-### Criteo CTR
- 
-| Model | AUC | Log Loss | Parameters |
+
+광고 시스템의 랭킹(예측) → 입찰(의사결정) 흐름을 공개 데이터로 재현.
+
+- CTR 예측 — Criteo (45.8M rows), 모델 5종 비교
+- CTR + CVR 멀티태스크 — Ali-CCP, ESMM (CTCVR = CTR × CVR)
+- 입찰 최적화 — iPinYou RTB, pCTR → 입찰가 변환 (Linear / ORTB) + 예산 제약 평가
+
+## Dataset
+
+| Dataset | Task | 크기 | Split |
 |---|---|---|---|
-| LR | 0.7546 | 0.5075 | 1,085,741 |
+| Criteo (Kaggle) | CTR | 45,840,617 rows / 13 num + 26 cat | 시간순 앞 40M train / 뒤 5.8M val |
+| Ali-CCP (IJCAI-18) | CTR + CVR | ~85M rows | 제공 split (train 42.3M / val·test 각 21.5M) |
+| iPinYou 2013 (1458) | Bidding | imp 3.08M / bid 14.7M rows | 시간순 6/06–6/11 train / 6/12 test |
+
+- Criteo 결측: I12 76.5%, I1/I10 45.4%, C22 76.3%, C19/20/25/26 44%
+- Ali-CCP label: CTR 0.0389 / CVR(clicked) 0.0054 / CTCVR 0.000208
+- iPinYou 1458: CTR 0.0795%, PayingPrice 평균 68.9 / median 60. 로그 구조 bid ⊃ imp ⊃ clk ⊃ conv. conversion 0건이라 CVR은 Ali-CCP 담당
+
+## Tech Stack
+
+- Language: Python 3.12, PyTorch 2.1 (CUDA 12.6)
+- CTR/CVR: LR, FM, DeepFM, DCN v2, AutoInt, ESMM
+- 입찰: Logistic Regression (pCTR, feature hashing 2^20) + Linear / ORTB1 / ORTB2
+- bid landscape: Kaplan-Meier win rate model, 2nd-price 기대비용 기반 λ 이분탐색
+- 전처리: num fillna(0)→clip(0)→log1p / cat min_freq=10 vocab 인덱싱
+
+## 모델
+
+| Model | 핵심 | 논문 |
+|---|---|---|
+| LR | 선형 baseline | McMahan 2013 |
+| FM | 2nd-order interaction | Rendle 2010 |
+| DeepFM | FM + DNN 병렬 | Guo 2017 |
+| DCN v2 | Cross Network + DNN | Wang 2021 |
+| AutoInt | Self-Attention interaction | Song 2019 |
+| ESMM | CTR+CVR 멀티태스크 | Ma 2018 |
+| Linear / ORTB | pCTR → 입찰가 변환 | Perlich 2012 / Zhang 2014 |
+
+## Evaluation Results
+
+### Criteo CTR (val)
+
+| Model | AUC | Log Loss | Params |
+|---|---|---|---|
+| LR | 0.7546 | 0.5075 | 1.09M |
 | FM | 0.7714 | 0.4912 | ~17M |
-| DeepFM | 0.7829 | 0.4779 | 18,952,974 |
-| DCN v2 | 0.7980 | 0.4563 | 18,259,872 |
-| AutoInt | 0.7986 | 0.4556 | 17,719,122 |
- 
-학습 환경: GPU(CUDA 12.6), batch_size=4096, Adam lr=1e-3, 1 epoch (FM은 2 epoch)
- 
+| DeepFM | 0.7829 | 0.4779 | 18.95M |
+| DCN v2 | 0.7980 | 0.4563 | 18.26M |
+| AutoInt | 0.7986 | 0.4556 | 17.72M |
+
+batch 4096, Adam lr=1e-3, 1 epoch (FM 2 epoch). interaction 모델링할수록 AUC 상승.
+DCN v2 ≈ AutoInt (AutoInt +0.0006, 추론은 DCN이 빠름). FM은 std=1 초기화에서 logit 폭발(-54~40) → std=0.01로 해결.
+시간순 split이라 논문(랜덤 split)보다 약간 낮음 (leakage 방지).
+
 ### Ali-CCP ESMM
- 
-| Metric | Val (best, epoch 3) | Test |
+
+| Metric | Val (best, ep3) | Test |
 |---|---|---|
 | CTR AUC | 0.6241 | 0.6240 |
 | CVR AUC | 0.6797 | 0.6654 |
 | CTCVR AUC | 0.6406 | 0.6326 |
- 
-학습 환경: GPU(CUDA 12.6), 5 epochs, params 27,369,298
- 
-> **참고 — Criteo와 AUC를 직접 비교하지 말 것**
-> Ali-CCP는 Criteo와 데이터·태스크가 달라 절대 AUC 수치를 직접 비교하는 의미가 없다.
-> Ali-CCP는 feature가 익명 ID 위주로 dense signal이 적고, CVR/CTCVR label이 극도로 희소(0.0054 / 0.0002)해
-> 공개 ESMM 벤치마크에서도 AUC가 0.62~0.68 대로 보고된다. 본 결과도 그 범위 안에 있다.
- 
-## 주요 발견
- 
-### 1. Feature Interaction 효과
- 
-LR → FM → DeepFM 순으로 AUC 상승. feature 간 상호작용을 모델링할수록 성능 향상.
- 
-### 2. FM 초기화 문제
- 
-FM 2차 항(0.5 * (||sum(vi)||² - sum(||vi||²)))이 기본 초기화(std=1)에서 logit 폭발(-54 ~ 40) 발생. std=0.01로 초기화 후 안정적 학습 가능.
- 
-### 3. DCN v2 vs AutoInt
- 
-Cross Network(DCN)와 Self-Attention(AutoInt) 모두 비슷한 성능(0.798x). AutoInt가 0.0006 높지만 추론 속도는 DCN이 빠름.
- 
-### 4. 시간순 Split (Criteo)
- 
-랜덤 split 대신 시간순 split 적용. 실제 서비스와 동일한 세팅으로 data leakage 방지. 논문(랜덤 split) 대비 AUC가 약간 낮게 나오는 원인.
- 
-### 5. ESMM - CVR 단독 학습의 문제
- 
-기존 CVR 모델은 클릭된 샘플만 학습 데이터로 쓰지만 추론은 모든 노출에 대해 해야 함 → Sample Selection Bias 발생. 또한 전환 데이터 자체가 너무 적어 학습 불안정(Data Sparsity). ESMM은 CVR을 직접 학습하지 않고 pCTCVR = pCTR × pCVR 관계로 유도하여 두 문제 동시 해결.
- 
-### 6. ESMM 학습 양상
- 
-CTR loss(0.1565)와 CTCVR loss(0.0020) 간 약 100배 차이로 loss weighting 튜닝 여지 있음 (CTCVR loss에 가중치 α를 키우는 방향). Epoch 3에서 최고 성능, 이후 과적합 경향.
- 
-## Embedding 시각화
- 
-FM으로 학습된 categorical embedding을 t-SNE로 2차원 시각화. 비슷한 클릭 패턴을 가진 카테고리값끼리 embedding 공간에서 군집화되는 경향 확인.
- 
+
+Criteo와 절대 AUC 직접 비교 불가 (익명 ID 위주, label 희소). 공개 ESMM 벤치마크도 0.62~0.68대.
+CVR 단독 학습은 sample selection bias + data sparsity 발생 → ESMM은 pCTCVR = pCTR × pCVR로 유도해 동시 해결.
+CTR loss(0.157) vs CTCVR loss(0.002) 약 100배 차이 → loss weighting 튜닝 여지. ep3 최고, 이후 과적합.
+
+### iPinYou CTR (test 6/12, tag 제외)
+
+| 지표 | 값 |
+|---|---|
+| AUC | 0.7092 (논문 LR 1458 ≈ 0.71) |
+| 실제 CTR | 0.0796% |
+| avg pCTR (raw → cal) | 1.0128% → 0.1041% |
+| logloss (raw → cal) | 0.01372 → 0.00632 |
+
+CTR 0.08% 불균형 → negative downsampling 10% 후 p/(p+(1-p)/w) 재보정 (He 2014).
+AUC는 보정 무관, 입찰식은 pCTR 절대값을 쓰므로 보정 필수 (안 하면 과대입찰).
+
+### iPinYou — tag ablation (AUC 0.99 원인)
+
+| 설정 | AUC | 기여 |
+|---|---|---|
+| (A) tag 전부 | 0.9897 | — |
+| (B) 11278만 제거 | 0.8236 | 11278 단독 +0.166 |
+| (C) tag 전부 제거 | 0.7092 | 나머지 태그 +0.114 |
+
+AUC 0.99 → leakage 의심 → 피처 ablation으로 UserTags 특정 (CreativeID/click혼입/train-test분리는 배제).
+11278(In-market/clothing) CTR 34% (평균 430배), 단 보유자 65.6% 미클릭 → 사전 타게팅 신호 (누수 아님).
+0.99는 단일 태그가 아닌 in-market 태그 누적. 입찰 비교 변별력 위해 tag 제외(0.71) 채택.
+
+### iPinYou — 예산별 입찰 전략 (획득 클릭 수)
+
+| 예산 | Constant | Linear | ORTB |
+|---|---|---|---|
+| full/64 | 18 | 22 | 20 |
+| full/32 | 25 | 31 | 33 |
+| full/16 | 41 | 58 | 64 |
+| full/8 | 59 | 101 | 92 |
+| full/4 | 109 | 174 | 172 |
+| full/2 | 208 | 262 | 259 |
+
+예산 = full_cost(전부 낙찰 비용)의 1/N, 예산별 파라미터 재탐색.
+전 구간 Linear/ORTB > Constant, 빡빡할수록 격차 큼 (Zhang 2014 재현). 빡빡한 구간 ORTB eCPC 더 낮음.
+완전 재탐색 시 Linear ≈ ORTB → ORTB의 강점은 재튜닝 없는 강건성.
+
+### iPinYou — 정식 ORTB (KM 기반, 시장가 비관측)
+
+| 항목 | 내용 |
+|---|---|
+| win rate model | W(b)=b/(b+c0), 시장가 급경사 못 따라감 → KM으로 대체 |
+| λ 결정 | 2nd-price 기대비용 Σ W(bid)·E[market\|market≤bid] 기반 이분탐색 |
+| 결과 | 시장가 비관측 KM-ORTB가 오라클 ORTB와 거의 일치 |
+| ORTB1 vs ORTB2 | 성능 유사 |
+| c 민감도 | λ 재탐색이 흡수, 변동 6~20% |
+
+bid 로그 win 20.9% / lose(censored) 79.1%. 단 1458 입찰가 300 단일 상수라 입찰가별 win rate 추정 불가 → 단일 입찰 정책 selection bias. bid landscape forecasting은 입찰가 탐색 데이터 필요.
+
 ## 실제 광고 시스템 구조
- 
-본 프로젝트는 전체 광고 시스템 중 **랭킹(Ranking)** 단계를 다루며, **입찰(Bidding)** 단계로 확장 진행 중이다.
- 
+
 | 단계 | 역할 | 기술 | 본 프로젝트 |
 |---|---|---|---|
-| 1. 후보 생성 (Candidate Generation) | 수백만 광고 → 수백 개 추려냄 | Two-Tower, ANN 검색 | - |
-| 2. 랭킹 (Ranking) | 수백 개 → 수십 개 추려냄 | DeepFM, DCN, ESMM | ✅ Criteo / Ali-CCP |
-| 3. 재랭킹 (Re-ranking) | 다양성, 예산, 광고주 제약 고려 | MMR, 비즈니스 룰 | - |
-| 4. 입찰 (Bidding) | 광고주 입찰가 결정 | pCTR × pCVR × bid price | 🔜 iPinYou |
-| 5. 예산 관리 (Budget Pacing) | 광고주 예산 고갈 방지 | 예산 제어 시스템 | - |
- 
-## 한계 및 향후 계획
- 
-- Criteo는 feature semantic 비공개로 해석 한계
-- Criteo는 CVR label 없어 CTR만 가능 → Ali-CCP로 CTR + CVR 멀티태스크(ESMM) 진행 (완료)
-- **입찰 최적화 확장**: iPinYou RTB 데이터로 pCTR/pCVR → 입찰가 변환(Linear bidding, ORTB) 실험 예정. 예측(랭킹)에서 의사결정(입찰)까지 end-to-end 광고 ML 파이프라인 완성이 목표.
-- ESMM loss weighting 튜닝 (CTCVR loss 가중치 α 조정)
-- 시퀀스 기반 모델(DIN/DIEN/SASRec) 적용 예정
-## 환경
- 
-- Python 3.12
-- PyTorch 2.1 (CUDA 12.6)
-- pandas, numpy, scikit-learn, matplotlib
+| 1. Candidate Generation | 수백만 → 수백 | Two-Tower, ANN | - |
+| 2. Ranking | 수백 → 수십 | DeepFM, DCN, ESMM | Criteo / Ali-CCP |
+| 3. Re-ranking | 다양성·제약 | MMR, 룰 | - |
+| 4. Bidding | 입찰가 결정 | Linear / ORTB, KM win rate | iPinYou |
+| 5. Budget Pacing | 예산 고갈 방지 | 예산 제어 | 예산 제약 시뮬레이션 |
+
+## Roadmap
+
+- [x] Criteo CTR 5종 비교 (LR/FM/DeepFM/DCN v2/AutoInt)
+- [x] Ali-CCP ESMM 멀티태스크 (CTCVR = pCTR × pCVR)
+- [x] iPinYou CTR + leakage 4단계 검증 (tag 원인 규명)
+- [x] 입찰 전략 Constant/Linear/ORTB 예산별 비교
+- [x] KM bid landscape + 정식 ORTB (오라클 근접) + c 민감도
+- [ ] 시퀀스 모델 (DIN/DIEN/SASRec)
+
 ## 임베딩 시각화
  
-![임베딩 시각화](./results/small_embedding.png)
+![임베딩 시각화](./img/small_embedding.png)
