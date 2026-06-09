@@ -51,7 +51,9 @@
 | AutoInt | 0.7986 | 0.4556 | 17.72M |
 
 batch 4096, Adam lr=1e-3, 1 epoch (FM 2 epoch). interaction 모델링할수록 AUC 상승.
+
 DCN v2 ≈ AutoInt (AutoInt +0.0006, 추론은 DCN이 빠름). FM은 std=1 초기화에서 logit 폭발(-54~40) → std=0.01로 해결.
+
 시간순 split이라 논문(랜덤 split)보다 약간 낮음 (leakage 방지).
 
 ### Ali-CCP ESMM
@@ -63,7 +65,9 @@ DCN v2 ≈ AutoInt (AutoInt +0.0006, 추론은 DCN이 빠름). FM은 std=1 초�
 | CTCVR AUC | 0.6406 | 0.6326 |
 
 Criteo와 절대 AUC 직접 비교 불가 (익명 ID 위주, label 희소). 공개 ESMM 벤치마크도 0.62~0.68대.
+
 CVR 단독 학습은 sample selection bias + data sparsity 발생 → ESMM은 pCTCVR = pCTR × pCVR로 유도해 동시 해결.
+
 CTR loss(0.157) vs CTCVR loss(0.002) 약 100배 차이 → loss weighting 튜닝 여지. ep3 최고, 이후 과적합.
 
 ### iPinYou CTR (test 6/12, tag 제외)
@@ -76,6 +80,7 @@ CTR loss(0.157) vs CTCVR loss(0.002) 약 100배 차이 → loss weighting 튜닝
 | logloss (raw → cal) | 0.01372 → 0.00632 |
 
 CTR 0.08% 불균형 → negative downsampling 10% 후 p/(p+(1-p)/w) 재보정 (He 2014).
+
 AUC는 보정 무관, 입찰식은 pCTR 절대값을 쓰므로 보정 필수 (안 하면 과대입찰).
 
 ### iPinYou — tag ablation (AUC 0.99 원인)
@@ -87,7 +92,9 @@ AUC는 보정 무관, 입찰식은 pCTR 절대값을 쓰므로 보정 필수 (�
 | (C) tag 전부 제거 | 0.7092 | 나머지 태그 +0.114 |
 
 AUC 0.99 → leakage 의심 → 피처 ablation으로 UserTags 특정 (CreativeID/click혼입/train-test분리는 배제).
+
 11278(In-market/clothing) CTR 34% (평균 430배), 단 보유자 65.6% 미클릭 → 사전 타게팅 신호 (누수 아님).
+
 0.99는 단일 태그가 아닌 in-market 태그 누적. 입찰 비교 변별력 위해 tag 제외(0.71) 채택.
 
 ### iPinYou — 예산별 입찰 전략 (획득 클릭 수)
@@ -104,8 +111,11 @@ AUC 0.99 → leakage 의심 → 피처 ablation으로 UserTags 특정 (CreativeI
 ![bid_results](./img/bid_results.png)
 
 예산 = full_cost(전부 낙찰 비용)의 1/N, 예산별 파라미터 재탐색.
+
 전 구간 Linear/ORTB > Constant, 빡빡할수록 격차 큼 (Zhang 2014 재현). 빡빡한 구간 ORTB eCPC 더 낮음.
+
 완전 재탐색 시 Linear ≈ ORTB → ORTB의 강점은 재튜닝 없는 강건성.
+
 오른쪽 bid landscape는 단순 모델 b/(b+55)이 시장가 급경사를 못 따라가는 한계를 보여줌 → KM으로 보완.
 
 ### iPinYou — 정식 ORTB (KM 기반, 시장가 비관측)
@@ -132,7 +142,9 @@ AUC 0.99 → leakage 의심 → 피처 ablation으로 UserTags 특정 (CreativeI
 ![km_real](./img/km_real.png)
 
 bid 로그 win 20.9% / lose(censored) 79.1%. naive(이긴 것만)는 bid 100에서 win rate를 0.83으로 추정, 진짜 KM은 0.18 → 약 5배 과대추정.
+
 실제 1458 입찰(300, win 20.9%)과 KM 200 근처 수렴값(0.2)이 일치 → 이긴 데이터만 보면 win rate 심하게 과대추정, censored 반영해야 실제 시장에 가까움.
+
 1458 입찰가 300 단일 상수라 입찰가별 win rate 곡선 추정 자체는 불가 → 탐색 없는 단일 정책의 selection bias. bid landscape forecasting은 입찰가 탐색 데이터 필요.
 
 ## 실제 광고 시스템 구조
