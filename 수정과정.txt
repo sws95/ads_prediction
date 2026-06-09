@@ -681,3 +681,17 @@ win: 3,077,016  (20.9%)
 lose(censored): 11,624,480
 win 시 평균 시장가: 68.9
 평균 입찰가: 300.0
+
+
+(ads_venv) C:\Users\swson23\Desktop\test\ads_prediction>python km_check.py
+입찰 14,701,496, win 3,077,016 (20.9%)
+
+bid별 win rate 비교 (KM=진짜, naive=이긴것만):
+  bid       KM    naive
+   20    0.038    0.181
+   40    0.062    0.298
+   60    0.106    0.505
+   80    0.164    0.785
+  100    0.175    0.834
+  150    0.191    0.913
+  200    0.200    0.956
