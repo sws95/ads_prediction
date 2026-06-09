@@ -11,8 +11,8 @@
 | Dataset | Task | 크기 | Split |
 |---|---|---|---|
 | Criteo (Kaggle) | CTR | 45,840,617 rows / 13 num + 26 cat | 시간순 앞 40M train / 뒤 5.8M val |
-| Ali-CCP (IJCAI-18) | CTR + CVR | ~85M rows | 제공 split (train 42.3M / val·test 각 21.5M) |
-| iPinYou 2013 (1458) | Bidding | imp 3.08M / bid 14.7M rows | 시간순 6/06–6/11 train / 6/12 test |
+| Ali-CCP (IJCAI-18) | CTR + CVR | ~85M rows | train 42.3M / val·test 각 21.5M |
+| iPinYou 2013 (1458) | Bidding | imp 3.08M / bid 14.7M rows | 시간순 6/6–6/11 train / 6/12 test |
 
 - Criteo 결측: I12 76.5%, I1/I10 45.4%, C22 76.3%, C19/20/25/26 44%
 - Ali-CCP label: CTR 0.0389 / CVR(clicked) 0.0054 / CTCVR 0.000208
