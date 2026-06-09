@@ -108,7 +108,7 @@ AUC 0.99 → leakage 의심 → 피처 ablation으로 UserTags 특정 (CreativeI
 | full/4 | 109 | 174 | 172 |
 | full/2 | 208 | 262 | 259 |
 
-![bid_results](./img/bid_results.png)
+![bid_results](./img/bid_results1.png)
 
 예산 = full_cost(전부 낙찰 비용)의 1/N, 예산별 파라미터 재탐색.
 
@@ -143,9 +143,13 @@ AUC 0.99 → leakage 의심 → 피처 ablation으로 UserTags 특정 (CreativeI
 
 bid 로그 win 20.9% / lose(censored) 79.1%. naive(이긴 것만)는 bid 100에서 win rate를 0.83으로 추정, 진짜 KM은 0.18 → 약 5배 과대추정.
 
-실제 1458 입찰(300, win 20.9%)과 KM 200 근처 수렴값(0.2)이 일치 → 이긴 데이터만 보면 win rate 심하게 과대추정, censored 반영해야 실제 시장에 가까움.
+실제 1458 입찰(300, win 20.9%)과 KM 200 근처 수렴값(0.2)이 일치 
 
-1458 입찰가 300 단일 상수라 입찰가별 win rate 곡선 추정 자체는 불가 → 탐색 없는 단일 정책의 selection bias. bid landscape forecasting은 입찰가 탐색 데이터 필요.
+→ 이긴 데이터만 보면 win rate 심하게 과대추정, censored 반영해야 실제 시장에 가까움.
+
+1458 입찰가 300 단일 상수라 입찰가별 win rate 곡선 추정 자체는 불가 
+
+→ 탐색 없는 단일 정책의 selection bias. bid landscape forecasting은 입찰가 탐색 데이터 필요.
 
 ## 실제 광고 시스템 구조
 
