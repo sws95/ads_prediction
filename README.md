@@ -50,6 +50,19 @@
 | DCN v2 | 0.7980 | 0.4563 | 18.26M |
 | AutoInt | 0.7986 | 0.4556 | 17.72M |
 
+## AutoInt vs DCN v2 추론 벤치마크 (GPU, warmup 20 / iter 200)
+
+| batch | model | mean(ms) | std | p50 | p99 | throughput(/s) |
+|-------|---------|---------:|------:|------:|------:|---------------:|
+| 1     | AutoInt | 1.502 | 0.577 | 1.205 | 2.766 | 666 |
+| 1     | DCN v2  | 0.595 | 0.123 | 0.563 | 1.216 | 1,682 |
+| 256   | AutoInt | 1.374 | 0.497 | 1.162 | 2.405 | 186,358 |
+| 256   | DCN v2  | 0.932 | 0.261 | 1.030 | 1.550 | 274,531 |
+| 4096  | AutoInt | 6.522 | 0.371 | 6.465 | 7.505 | 628,000 |
+| 4096  | DCN v2  | 1.163 | 0.203 | 1.101 | 1.739 | 3,521,204 |
+
+**DCN v2 우위**: batch=1 단건 2.5배 / batch=4096 throughput 5.6배. p99·std 모두 DCN이 낮아 tail latency 안정적. AUC
+
 batch 4096, Adam lr=1e-3, 1 epoch (FM 2 epoch). interaction 모델링할수록 AUC 상승.
 
 DCN v2 ≈ AutoInt (AutoInt +0.0006, 추론은 DCN이 빠름). FM은 std=1 초기화에서 logit 폭발(-54~40) → std=0.01로 해결.
