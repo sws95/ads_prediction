@@ -246,11 +246,14 @@ imp:        3,083,056
 clicks:     2,452  (CTR 0.0795%)
 PayingPrice mean 68.9 / median 60 / 90% 147
 
+0.08이면 편향 가능성 있지 않나...?
+
 2. 클래스 불균형으로 인한 pCTR 편향 (calibration)
 CTR이 0.08%라 양성(클릭)이 극도로 희소합니다. 만약 negative downsampling이나 class_weight='balanced'를 쓰면 모델의 pCTR 출력이 실제 확률보다 부풀려집니다. 예를 들어 실제 0.08%인데 모델이 5%라고 출력하는 식입니다.
 순위(ranking)만 보는 AUC는 이래도 괜찮지만, 입찰가 계산엔 치명적입니다. Linear의 bid = base × pCTR/avg_pCTR이나 ORTB의 sqrt(c/λ × pCTR + c²) - c 둘 다 pCTR의 절대값을 직접 씁니다. pCTR이 부풀려지면 입찰가도 왜곡됩니다. 그래서 제가 짠 코드에서 class_weight를 일부러 안 쓴 게 이 calibration 보존 때문입니다.
 다만 downsampling을 쓰면 학습 속도가 빨라지는 장점이 있어서, 실무에선 downsampling 후 재보정(recalibration) 을 합니다. 공식은 p_corrected = p / (p + (1-p)/w) (w = downsampling 비율). 또는 Platt scaling, isotonic regression으로 보정합니다.
 
+다운샘플링 해야겠다...
 
 02_train_ctr.py를 negative downsampling + 재보정 + calibration plot 버전으로 다시 짜겠습니다.
 핵심 공식부터 정리하면, negative만 비율 w로 downsampling하면(예: negative의 10%만 사용, w=0.1) 학습 데이터의 양성 비율이 인위적으로 부풀려집니다. 그래서 학습된 pCTR을 원래 분포로 되돌리는 보정이 필요합니다:
@@ -284,7 +287,7 @@ logloss (cal)   : 0.00169   <- 더 낮아야 정상
 Saved calibration plot: C:\Users\swson23\Desktop\test\ads_prediction\ipinyou.contest.dataset\processed\calibration.png
 Saved sim input: C:\Users\swson23\Desktop\test\ads_prediction\ipinyou.contest.dataset\processed\sim_input_1458.parquet
 
-다운이랑 전 후 차이가 뭐야
+다운이랑 전 후 차이가 정확히 어떻게 되지...?
 
 오전 9:57
 「다운샘플링 전 vs 후」의 차이를 묻는 거로 이해했습니다. 두 가지 축에서 정리하겠습니다.
@@ -309,6 +312,10 @@ AUC (순위 성능)	동일	동일 (보정은 순위 안 바꿈)
 logloss	높음 (확률 틀림)	낮음 (확률 정확)
 입찰가 계산	왜곡됨 (과대입찰)	정상
 
+근데 AUC 0.99 뭐냐..? 나락인데
+
+
+
 "AUC 0.99가 나와서 leakage를 의심했고, CreativeID가 클릭과 과결합된 걸 발견해 제거했더니 0.8x로 내려왔다"
 
 오전 10:03Claude 응답: 보정 효과가 그림으로 명확히 나옵니다.보정 효과가 그림으로 명확히 나옵니다.
@@ -319,6 +326,7 @@ logloss	높음 (확률 틀림)	낮음 (확률 정확)
 둘째, 오른쪽 고확률 구간(0.75~0.95)에서 model 선이 대각선 아래에서 평평해집니다. 이 구간은 여전히 약간 과대예측입니다. 다만 이 구간에 들어가는 노출 수가 적어서(고pCTR은 드묾) 전체 calibration엔 큰 영향 없습니다.
 calibration 자체는 잘 됐습니다. 이제 남은 건 AUC 0.99 / 예측 pCTR 0.8의 정체를 diag_leakage.py로 확인하는 겁니다. 그거 결과 붙여주시면 정상인지 누수인지 판정하겠습니다.
 
+이거 제거 한다고 되나..? 일단 split이랑 그런 건 잘 된 거 같은데 왜 이러지
 
 피처 하나씩 제거 시 AUC (많이 떨어질수록 그 피처가 핵심/누수):
   -time     : 0.9884  (Δ +0.0013)
@@ -336,6 +344,9 @@ calibration 자체는 잘 됐습니다. 이제 남은 건 AUC 0.99 / 예측 pCTR
 C:\Users\swson23\Desktop\test\ads_prediction\ads_venv\Lib\site-packages\sklearn\linear_model\_sag.py:348: ConvergenceWarning: The max_iter was reached which means the coef_ did not converge
   warnings.warn(
   -tag      : 0.7092  (Δ +0.2805)
+
+??? 태그가 뭐길래 이게 되지
+
 
 가장 영향 큰 피처: tag (제거 시 AUC 0.7092)
 10006    Long-term interest/news
@@ -410,6 +421,9 @@ user.profile.tags.en.txt
 
 전체 평균 CTR: 0.000795
 
+아니 근데 태그 저거 11278 하나만으로 이게 된다고?? 그건 아닌 거 같은데
+
+
 즉 0.99는 단일 태그 암기가 아니라:
 
 11278 (CTR 34%) → 클릭의 70% 잡음 → 단독 AUC 0.85
@@ -421,6 +435,9 @@ user.profile.tags.en.txt
 
  "이 데이터에선 강한 태그가 변별력을 죽였지만, 현실 멀티캠페인·비정상 환경에선 태그가 핵심이면서도 어려운 문제로 남는다"
 
+현실에서 쓰고 효과가 좋으면 태그를 쓰는 게 맞는 거 같기도 하고...
+찾아보니까 비구매 한 사람들이 66퍼 인거 보니까 leakage는 아닌 거 같은데 넣어야 되나
+
 1458  train_ds 265,443 (pos 2096)  test 447,493 (pos 356)
 C:\Users\swson23\Desktop\test\ads_prediction\ads_venv\Lib\site-packages\sklearn\linear_model\_sag.py:348: ConvergenceWarning: The max_iter was reached which means the coef_ did not converge
   warnings.warn(
@@ -430,9 +447,12 @@ C:\Users\swson23\Desktop\test\ads_prediction\ads_venv\Lib\site-packages\sklearn\
 11278 단독 기여 (A-B): +0.1661
 나머지 태그 기여 (B-C): +0.1144
 
-태그 전부 제거(0.71) 가 나을 거 같아...
+
+
+
+태그 전부 제거(0.71) 가 나을 거 같네....
 논문에서 그렇게 한 이유가 있지 않을까?
-그리고 현실에서 저렇게 0.99가 나올 거 같진 않아
+그리고 현실에서 저렇게 0.99가 나올 거 같진 않은디...
 
 === 파라미터 탐색 (budget = full/8 = 3,787,138) ===
 
@@ -471,7 +491,7 @@ full/8   ( 3,787,138)         57         87         92
 full/4   ( 7,574,275)        101        166        172
 full/2   (15,148,550)        208        230        186
 
-어떻게 생각해? 그리고 여기서 더 해 볼만한 게 있니?
+여기서 더 해 볼만한 게 있니?
 
 오후 2:01
 제 생각엔 파라미터 범위부터 넓히고, 그다음 시각화가 맞습니다. 순서가 중요합니다. 지금 Linear와 ORTB 둘 다 최적점이 탐색 범위 끝에 걸려 있어서(Linear는 base 60에서 최소값 쪽, ORTB는 lambda 5e-06에서 큰 값 쪽), 현재 숫자가 각 전략의 진짜 실력이 아닐 수 있습니다. 최적점을 제대로 잡기 전에 그래프를 그리면, 덜 튜닝된 결과를 그리게 됩니다. 그래서 범위 넓히기가 먼저입니다.
@@ -503,6 +523,9 @@ bid landscape 모델링. 지금은 "내 입찰가 ≥ 시장가면 낙찰"로 �
 제 추천은 1~4순위까지 하고 마무리하는 겁니다. 그게 "CTR 예측 → 입찰 전략 → 예산 제약 평가"라는 완결된 스토리를 만들고, 각 전략을 공정하게 튜닝해서 비교한 단단한 결과가 됩니다. bid landscape 모델링(5순위)은 시간 여유가 있고 더 깊이 보여주고 싶을 때 추가하는 보너스고요.
 
 1~3순위를 한 스크립트에 합쳐서 03을 업그레이드한 다음 4순위 시각화까지 한 번에 갈까요? 아니면 1순위만 빠르게 확인하고 단계적으로 갈까요?
+
+일단 다 박아 ㄱㄱㄱㄱㄱ
+
 
 왼쪽 (예산별 클릭)
 예상한 패턴이 나옵니다. 빡빡한 구간부터 넉넉한 구간까지 Linear와 ORTB가 Constant를 일관되게 앞섭니다. 다만 예산마다 파라미터를 재탐색하니 Linear와 ORTB가 거의 겹칩니다. 이전(고정 파라미터)에선 빡빡한 구간에서 ORTB가 Linear를 약간 앞섰는데, 각자 최적 튜닝하니 둘 다 비슷한 상한에 도달한 겁니다. 이것도 정당한 결과입니다. "충분히 튜닝하면 Linear와 ORTB의 성능 차이는 작고, 둘 다 Constant 대비 우위가 명확하다"는 결론이고요. full/2(맨 오른쪽)에서 Constant만 208로 처지고 Linear·ORTB가 260으로 붙는 것도 일관됩니다.
@@ -544,6 +567,7 @@ KM 추정(km_winrate)은 진 경매의 시장가를 censored로 다뤄서 win ra
 한 가지 미리 짚으면, expected_cost_and_win의 기대 비용을 sum(bid×winprob)로 단순화했습니다. 정확히는 이긴 경우의 조건부 기대 시장가 E[market|market≤bid]를 써야 하는데, KM에서 그걸 적분하는 건 복잡해서 근사했습니다. 그래서 KM-ORTB의 lambda가 약간 보수적으로/공격적으로 치우칠 수 있습니다. 결과 보고 클릭이 오라클 대비 많이 처지면 이 근사를 정밀화하겠습니다.
 돌린 결과랑 km_ortb.png 붙여주세요.
 
+람다가 정확히 어떻게 계산 되지
 
 네, 이분탐색입니다. λ가 어떻게 결정되는지 단계별로 보겠습니다.
 왜 이분탐색을 쓰나
@@ -575,6 +599,10 @@ for _ in range(40):
 다만 앞서 말한 대로 지금 기대 비용을 Σ(bid×winprob)로 근사해서, 빡빡한 구간에서 λ가 약간 부정확합니다. 그게 KM-ORTB가 오라클보다 빡빡한 구간에서 더 처진 이유고요. 이 근사를 E[market|win] 기반으로 정밀화하면 개선됩니다.
 censored 데이터(진 경매)는 사건으로 안 세지만, n_k(위험집합)에서는 빠집니다. 이렇게 절단된 관측의 정보를 부분적으로 반영합니다. 그래서 진 경매를 버리지도, 정확한 값으로 쓰지도 않고 "중간"으로 처리하는 거죠.
 win rate는 W(b) = 1 - S(b) = "시장가가 b 이하일 확률" = "b로 입찰하면 이길 확률"입니다.
+
+아니 근데 50%는 어디서 나온 거야
+
+
 그럼 코드의 50%는 뭐냐
 여기가 시연용 단순화입니다. 손승우님이 받은 iPinYou imp 로그는 iPinYou가 과거에 이긴 노출들이라, 사실 시장가가 다 관측돼 있습니다. 진 경매(censored) 데이터가 없어요. 그러면 KM이 그냥 경험적 CDF랑 똑같아져서, KM을 쓰는 의미가 안 보입니다.
 그래서 코드가 일부러 "이 데이터 중 50%만 이긴 거고 나머지 50%는 진 거(censored)"라고 가정을 넣은 겁니다(win_prob_at_train=0.5). 무작위로 절반을 censored로 표시해서, "절단된 데이터가 섞이면 KM이 어떻게 복원하나"를 시연하는 거죠.
@@ -589,7 +617,8 @@ bid 로그를 써서 진짜 censored 데이터로 KM을 돌리는 버전으로 �
 한 가지 더: 데이터의 한계
 그리고 iPinYou 데이터엔 더 근본적인 한계가 있습니다. 우리는 iPinYou가 이긴 경매의 2등가만 봅니다. iPinYou가 진 경매의 2등가(=그때 이긴 사람이 낸 가격)는 안 보입니다. 게다가 2등가만 보이지, 3등·4등이 얼마 불렀는지는 전혀 모릅니다. 그래서 우리가 복원하는 "시장가 분포"는 사실 iPinYou가 이긴 경매들의 2등가 분포라는, 이미 한 번 걸러진 데이터입니다. 이게 앞서 얘기한 selection bias와도 연결됩니다.
 정리하면. 80으로 이겨서 70 냈으면 70은 2등 가격이고, 노출의 고정 가치가 아니라 그 경매의 경쟁 결과입니다. 2등이 달랐으면 다른 값이 나옵니다. 그래서 win rate가 확정이 아니라 확률이고, KM이 추정하는 건 그 2등가의 분포입니다. 손승우님 직관이 정확했고, 이건 RTB 입찰 모델링의 본질적인 부분입니다.
-그러면 01c 돌리고 뭐 뭐 돌려?
+
+이거 imp 말고 bid로 전체적으로 다 봐야겠다.
 
 오후 2:42
 01c 돌린 다음 06만 돌리면 됩니다. 이 둘이 bid 로그 기반 진짜 KM 한 세트입니다.
@@ -682,6 +711,7 @@ lose(censored): 11,624,480
 win 시 평균 시장가: 68.9
 평균 입찰가: 300.0
 
+실제 bid로 한 결과!
 
 (ads_venv) C:\Users\swson23\Desktop\test\ads_prediction>python km_check.py
 입찰 14,701,496, win 3,077,016 (20.9%)
