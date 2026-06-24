@@ -146,7 +146,6 @@ eCPC ↔ 입찰가 (2nd-price): eCPC 낮음 = λ 큼 = 입찰가 낮음 = 싸게
 ![bid_results](./img/bid_results1.png)
 
 bid landscape는 단순 모델 b/(b+55)이 시장가 급경사를 못 따라가는 한계를 보여줌 → KM으로 보완.
-![bid_results](./img/bid_results1.png)
 
 ### iPinYou — pCTR 품질의 영향 (0.71 비교용)
 
