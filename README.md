@@ -93,9 +93,11 @@ CTR loss(0.157) vs CTCVR loss(0.002) 약 100배 차이 → loss weighting 튜닝
 | logloss (raw → cal) | 0.00531 → 0.00169 | 0.01373 → 0.00632 |
 
 CTR 0.08% 불균형 → negative downsampling 10% 후 p/(p+(1-p)/w) 재보정 (He 2014).
+
 AUC는 보정 무관, 입찰식은 pCTR 절대값을 쓰므로 보정 필수 (안 하면 과대입찰).
 
 메인은 tag 포함(AUC 0.99) — 논문 1458 LR(0.9881)과 정합하며, in-market 태그는 누수가 아닌 정상 피처(사전 타게팅 신호)이므로 채택.
+
 입찰 전략 비교는 tag 제외(0.71) 별도 설정 — pCTR에 불확실성을 남겨 Constant/Linear/ORTB 전략 변별력을 확보하기 위함.
 
 ### iPinYou — tag ablation (AUC 0.99의 원인 규명)
@@ -107,8 +109,11 @@ AUC는 보정 무관, 입찰식은 pCTR 절대값을 쓰므로 보정 필수 (�
 | (C) tag 전부 제거 | 0.7092 | 나머지 태그 +0.114 |
 
 AUC 0.99 → leakage 의심 → 피처 ablation으로 원인을 UserTags로 특정 (CreativeID 혼입 / click 누수 / train-test 분리 오류는 배제).
+
 11278(In-market/clothing): 보유자 CTR 34% (평균의 약 430배). 단 보유자 65.6%가 미클릭 → 미래 정보 누수가 아니라 사전 타게팅 신호로 판정.
+
 0.99는 단일 태그가 아닌 in-market 태그 누적 효과. 누수가 아니므로 tag 포함(0.99)을 CTR 메인 모델로 채택하고, 입찰 전략 비교에 한해 변별력 확보를 위해 tag 제외(0.71)를 별도 사용.
+
 
 ### iPinYou — 예산별 입찰 전략 (획득 클릭 수)
 
