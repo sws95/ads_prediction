@@ -143,7 +143,7 @@ eCPC ↔ 입찰가 (2nd-price): eCPC 낮음 = λ 큼 = 입찰가 낮음 = 싸게
 
 → 예산이 충분하면 Linear ≈ ORTB. ORTB 명확한 우위는 가장 빡빡한 full/64 — 40점에서도 클릭(335 vs 283)과 eCPC(1123 vs 1673) 모두 앞섬. 빡빡할수록 오목 입찰 곡선의 배분 효과 큼.
 
-![bid_results](./img/bid_results1.png)
+![bid_results](./img/bid_results.png)
 
 bid landscape는 단순 모델 b/(b+55)이 시장가 급경사를 못 따라가는 한계를 보여줌 → KM으로 보완.
 
