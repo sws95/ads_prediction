@@ -83,20 +83,22 @@ CVR 단독 학습은 sample selection bias + data sparsity 발생 → ESMM은 pC
 
 CTR loss(0.157) vs CTCVR loss(0.002) 약 100배 차이 → loss weighting 튜닝 여지. ep3 최고, 이후 과적합.
 
-### iPinYou CTR (test 6/12, tag 제외)
+### iPinYou CTR (test 6/12) — tag 포함(메인) / 제외(입찰 비교용)
 
-| 지표 | 값 |
-|---|---|
-| AUC | 0.7092 (논문 LR 1458 ≈ 0.71) |
-| 실제 CTR | 0.0796% |
-| avg pCTR (raw → cal) | 1.0128% → 0.1041% |
-| logloss (raw → cal) | 0.01372 → 0.00632 |
+| 지표 | tag 포함 (메인) | tag 제외 (입찰 비교용) |
+|---|---|---|
+| AUC | 0.9897 (논문 LR 1458 = 0.9881 정합) | 0.7092 |
+| 실제 CTR | 0.0796% | 0.0796% |
+| avg pCTR (raw → cal) | 0.4480% → 0.1168% | 1.0130% → 0.1042% |
+| logloss (raw → cal) | 0.00531 → 0.00169 | 0.01373 → 0.00632 |
 
 CTR 0.08% 불균형 → negative downsampling 10% 후 p/(p+(1-p)/w) 재보정 (He 2014).
-
 AUC는 보정 무관, 입찰식은 pCTR 절대값을 쓰므로 보정 필수 (안 하면 과대입찰).
 
-### iPinYou — tag ablation (AUC 0.99 원인)
+메인은 tag 포함(AUC 0.99) — 논문 1458 LR(0.9881)과 정합하며, in-market 태그는 누수가 아닌 정상 피처(사전 타게팅 신호)이므로 채택.
+입찰 전략 비교는 tag 제외(0.71) 별도 설정 — pCTR에 불확실성을 남겨 Constant/Linear/ORTB 전략 변별력을 확보하기 위함.
+
+### iPinYou — tag ablation (AUC 0.99의 원인 규명)
 
 | 설정 | AUC | 기여 |
 |---|---|---|
@@ -104,11 +106,9 @@ AUC는 보정 무관, 입찰식은 pCTR 절대값을 쓰므로 보정 필수 (�
 | (B) 11278만 제거 | 0.8236 | 11278 단독 +0.166 |
 | (C) tag 전부 제거 | 0.7092 | 나머지 태그 +0.114 |
 
-AUC 0.99 → leakage 의심 → 피처 ablation으로 UserTags 특정 (CreativeID/click혼입/train-test분리는 배제).
-
-11278(In-market/clothing) CTR 34% (평균 430배), 단 보유자 65.6% 미클릭 → 사전 타게팅 신호 (누수 아님).
-
-0.99는 단일 태그가 아닌 in-market 태그 누적. 입찰 비교 변별력 위해 tag 제외(0.71) 채택.
+AUC 0.99 → leakage 의심 → 피처 ablation으로 원인을 UserTags로 특정 (CreativeID 혼입 / click 누수 / train-test 분리 오류는 배제).
+11278(In-market/clothing): 보유자 CTR 34% (평균의 약 430배). 단 보유자 65.6%가 미클릭 → 미래 정보 누수가 아니라 사전 타게팅 신호로 판정.
+0.99는 단일 태그가 아닌 in-market 태그 누적 효과. 누수가 아니므로 tag 포함(0.99)을 CTR 메인 모델로 채택하고, 입찰 전략 비교에 한해 변별력 확보를 위해 tag 제외(0.71)를 별도 사용.
 
 ### iPinYou — 예산별 입찰 전략 (획득 클릭 수)
 
