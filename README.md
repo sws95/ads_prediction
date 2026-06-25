@@ -145,7 +145,7 @@ train에서 결정한 파라미터를 test에 적용한 결과:
 
 - **전 구간 Linear/ORTB ≫ Constant** (1/64에서 30배).
 - **빡빡한 구간은 oracle에 근접**(335 vs 335)하나, **여유 구간(1/8↓)에서 클릭이 거꾸로 떨어짐** (ORTB-CDF 336→278→249→269, oracle은 단조 증가 342→353). eCPC도 1/2에서 56,314로 폭등.
-- **원인 = train→test 시장가 shift.** train에서 푼 고정 λ가 test 당일 시장가에 비해 공격적. 노출은 시간순 도착인데 초반부터 비싼 노출까지 이기며 예산을 빠르게 소진해 후반 클릭 노출을 놓침 → 예산이 많을수록 더 일찍 소진돼 클릭이 줄어듦. train in-sample은 단조 증가(1789→1828)라 솔버 버그가 아니라 **일반화 갭**.
+- **원인 = train→test 시장가 shift.** train에서 푼 고정 λ가 test 당일 시장가에 비해 공격적. 노출은 시간순 도착인데 초반부터 비싼 노출까지 이기며 예산을 빠르게 소진해 후반 클릭 노출을 놓침 → 예산이 많을수록 더 일찍 소진돼 클릭이 줄어듦.
 
 → oracle(353)과 정석(269)의 갭이 곧 **실시간 λ pacing으로 메울 공간**. (oracle은 test에서 직접 λ를 고른 상한이라 실무 불가능 — 미래를 본 것.)
 
@@ -153,7 +153,8 @@ train에서 결정한 파라미터를 test에 적용한 결과:
 
 ### 2. win rate 추정 품질에 따라 갈린다 (bbc 붕괴)
 
-같은 BISECT, win rate 모델만 CDF vs b/(b+c)로 교체. **bbc는 train in-sample부터 무너진다** — train→test 문제가 아니라 win rate 모델 자체가 train조차 못 맞춘 것.
+같은 BISECT, win rate 모델만 CDF vs b/(b+c)로 교체. **bbc는 train in-sample부터 무너진다** 
+— train→test 문제가 아니라 win rate 모델 자체가 train조차 못 맞춘 것.
 
 | 예산 | ORTB-CDF (tr/te) | ORTB-bbc (tr/te) |
 |---|---|---|
@@ -164,7 +165,7 @@ train에서 결정한 파라미터를 test에 적용한 결과:
 | full/4 | 1841 / 249 | **836 / 165** |
 | full/2 | 1828 / 269 | **1186 / 208** |
 
-bbc는 1/16부터 train(687)·test(293) 동시 폭락(CDF는 1789/336).
+bbc는 1/16부터 train(687)와 test(293) 동시 폭락(CDF는 1789/336).
 
 **원인: ① win rate 곡선이 틀림.** 1458 시장가 CDF는 ~70원에 절벽이 있는데 b/(b+c)는 매끄러워 못 따라감:
 
