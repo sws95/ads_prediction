@@ -149,6 +149,20 @@ train에서 결정한 파라미터를 test에 적용한 결과:
 
 → oracle(353)과 정석(269)의 갭이 곧 **실시간 λ pacing으로 메울 공간**.
 
+**pacing 적용 결과.** 
+
+하루를 시간 슬롯으로 나눠 예산 소진율을 피드백, 과소진이면 λ를 올려(입찰↓) 예산을 분배한다(미래 클릭이 아니라 예산 잔액만 봄). 고정 λ로 무너진 구간을 oracle 수준까지 회복:
+
+| 예산 | 고정 λ | P 제어 | PID | oracle | PID/oracle |
+|---|---|---|---|---|---|
+| full/8 | 278 | 334 | 322 | 343 | 94% |
+| full/4 | 249 | 340 | 348 | 348 | 100% |
+| full/2 | 269 | 308 | **348** | 353 | **99%** |
+
+단순 비례(P) 제어는 1/2처럼 λ 보정 폭이 큰 구간에서 87%(308)에 그친다 — 슬롯 안에 목표 λ까지 못 따라잡기 때문. 
+
+**PID의 적분(I)항**이 누적 오차를 보정해 1/2을 99%(348)까지 끌어올린다. (단 1/8처럼 보정 폭이 작은 구간은 P가 더 안정적 — 게인 트레이드오프.)
+
 ![bid_results](./img/bid_pipeline.png)
 
 ### 2. win rate 추정 품질에 따라 갈린다 (bbc 붕괴)
@@ -260,15 +274,17 @@ bbc 붕괴는 pacing으로 못 막고, 시장가 shift는 모델로 못 막는�
 | 2. Ranking | 수백 → 수십 | DeepFM, DCN, ESMM | Criteo / Ali-CCP |
 | 3. Re-ranking | 다양성·제약 | MMR, 룰 | - |
 | 4. Bidding | 입찰가 결정 | Linear / ORTB, KM win rate | iPinYou |
-| 5. Budget Pacing | 예산 고갈 방지 | 예산 제어 | 예산 제약 시뮬레이션 |
+| 5. Budget Pacing | 예산 고갈 방지 | 예산 제어 (P→PID) | iPinYou pacing 시뮬 |
 
 ## Roadmap
 
 - [x] Criteo CTR 5종 비교 (LR/FM/DeepFM/DCN v2/AutoInt)
 - [x] Ali-CCP ESMM 멀티태스크 (CTCVR = pCTR × pCVR)
 - [x] iPinYou CTR + leakage 4단계 검증 (tag 원인 규명)
-- [x] 입찰 전략 Constant/Linear/ORTB 예산별 비교
-- [x] KM bid landscape + 정식 ORTB (오라클 근접) + c 민감도
+- [x] 입찰 전략 Constant/Linear/ORTB 예산별 비교 (train→test 정석)
+- [x] win rate 추정 (CDF vs b/(b+c)) — bbc 붕괴 메커니즘 규명
+- [x] 예산 pacing (P/PID) — 분포 shift 갭 oracle 99% 회복
+- [x] selection bias (KM vs naive) — 단일 정책 로그 한계
 - [ ] 시퀀스 모델 (DIN/DIEN/SASRec)
 
 ## 임베딩 시각화
