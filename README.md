@@ -16,14 +16,14 @@
 
 - Criteo 결측: I12 76.5%, I1/I10 45.4%, C22 76.3%, C19/20/25/26 44%
 - Ali-CCP label: CTR 0.0389 / CVR(clicked) 0.0054 / CTCVR 0.000208
-- iPinYou 1458: CTR 0.0795%, PayingPrice 평균 68.9 / median 60. conversion 0건이라 CVR은 Ali-CCP에서 진행
+- iPinYou 1458: CTR 0.0795%, PayingPrice 전체 평균 68.9 / median 60. conversion 0건이라 CVR은 Ali-CCP에서 진행
 
 ## Tech Stack
 
 - Language: Python 3.12, PyTorch 2.1 (CUDA 12.6)
 - CTR/CVR: LR, FM, DeepFM, DCN v2, AutoInt, ESMM
 - 입찰: Logistic Regression (pCTR, feature hashing 2^20) + Linear / ORTB1 / ORTB2
-- bid landscape: Kaplan-Meier win rate model, 2nd-price 기대비용 기반 λ 이분탐색
+- bid landscape: win rate model — CDF(비모수, 메인) / KM(censored 보정) / b(b+c)(파라메트릭). 2nd-price 기대비용 기반 λ 이분탐색
 - 전처리: num fillna(0)→clip(0)→log1p / cat min_freq=10 vocab 인덱싱
 
 ## 모델
@@ -61,7 +61,7 @@
 | 4096  | AutoInt | 6.522 | 0.371 | 6.465 | 7.505 | 628,000 |
 | 4096  | DCN v2  | 1.163 | 0.203 | 1.101 | 1.739 | 3,521,204 |
 
-**DCN v2 우위**: batch=1 단건 2.5배 / batch=4096 throughput 5.6배. p99·std 모두 DCN이 낮아 tail latency 안정적. AUC
+**DCN v2 우위**: batch=1 단건 2.5배 / batch=4096 throughput 5.6배. p99, std 모두 DCN이 낮아 tail latency 안정적.
 
 batch 4096, Adam lr=1e-3, 1 epoch (FM 2 epoch). interaction 모델링할수록 AUC 상승.
 
@@ -123,7 +123,7 @@ test에서 직접 λ를 고른 것은 미래를 본 것이라 oracle(상한선)�
 win rate 모델은 imp 로그 기반 CDF(비모수)와 b/(b+c)(파라메트릭) 둘을 비교한다.
 
 ```
-available test clicks = 356 | test full_cost = 30,297,100 | avg market 67.7 | c0 = 33.9
+available test clicks = 356 | test full_cost = 30,297,100 | avg test marketprice 67.7 | c0 = 33.9
 test AUC 0.9897 | 실제 CTR 0.0796% | avg pCTR(cal) 0.1168%
 train→test win rate MAE: CDF 0.0112 | b/(b+c) 0.1247
 ```
@@ -275,7 +275,7 @@ bbc 붕괴는 pacing으로 못 막고, 시장가 shift는 모델로 못 막는�
 | 1. Candidate Generation | 수백만 → 수백 | Two-Tower, ANN | - |
 | 2. Ranking | 수백 → 수십 | DeepFM, DCN, ESMM | Criteo / Ali-CCP |
 | 3. Re-ranking | 다양성·제약 | MMR, 룰 | - |
-| 4. Bidding | 입찰가 결정 | Linear / ORTB, KM win rate | iPinYou |
+| 4. Bidding | 입찰가 결정 | Linear / ORTB, CDF/KM win rate | iPinYou |
 | 5. Budget Pacing | 예산 고갈 방지 | 예산 제어 (P→PID) | iPinYou pacing 시뮬 |
 
 ## Roadmap
