@@ -118,7 +118,7 @@ AUC는 보정 무관, 입찰식은 pCTR 절대값을 쓰므로 보정 필수 (�
 
 **평가 원칙.** 입찰 파라미터(ORTB λ, Linear base, Const c0)는 train(6/06–6/11)에서 결정해 test(6/12)에 적용한다.
 
-test에서 직접 λ를 고른 것은 미래를 본 것이라 **oracle(상한선)**으로만 쓴다. λ는 그리드 대신 **bisection**으로 푼다(비용이 λ에 단조, Zhang 2014 방식).
+test에서 직접 λ를 고른 것은 미래를 본 것이라 **oracle(상한선)**으로만 쓴다. λ는 **bisection**으로 푼다(비용이 λ에 단조, Zhang 2014 방식).
 
 win rate 모델은 imp 로그 기반 **CDF(비모수)**와 **b/(b+c)(파라메트릭)** 둘을 비교한다.
 
@@ -130,11 +130,9 @@ train→test win rate MAE: CDF 0.0112 | b/(b+c) 0.1247
 
 예산 = train full_cost의 1/N. 작을수록 노출을 골라 사야 하는 빡빡한 설정.
 
----
+### 1. train에서 푼 고정 λ는 분포 shift 구간에서 깨진다
 
-### 1. train에서 푼 λ는 test 여유 구간에서 깨진다
-
-train에서 결정한 파라미터를 test에 적용한 결과(정석):
+train에서 결정한 파라미터를 test에 적용한 결과:
 
 | 예산 | Const | Linear | ORTB-CDF (clk/eCPC) | ORTB-bbc | oracle(상한) |
 |---|---|---|---|---|---|
@@ -152,8 +150,6 @@ train에서 결정한 파라미터를 test에 적용한 결과(정석):
 → oracle(353)과 정석(269)의 갭이 곧 **실시간 λ pacing으로 메울 공간**. (oracle은 test에서 직접 λ를 고른 상한이라 실무 불가능 — 미래를 본 것.)
 
 ![bid_results](./img/bid_pipeline.png)
-
----
 
 ### 2. win rate 추정 품질에 따라 갈린다 (bbc 붕괴)
 
@@ -189,8 +185,6 @@ full/2:  소진 CDF 1.0 / bbc 1.0
 ```
 
 win rate가 정확해야 그 λ가 클릭 최적(KKT)과 일치한다(Zhang 2014). bbc는 win rate 오차로 λ가 가짜 그림자 가격이 돼, 예산은 채우되 클릭-max에서 벗어난다.
-
----
 
 ### 3. pCTR 품질에 따라 갈린다 (AUC 0.99 vs 0.71)
 
