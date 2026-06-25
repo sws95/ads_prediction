@@ -154,7 +154,8 @@ train에서 결정한 파라미터를 test에 적용한 결과:
 ### 2. win rate 추정 품질에 따라 갈린다 (bbc 붕괴)
 
 같은 BISECT, win rate 모델만 CDF vs b/(b+c)로 교체. **bbc는 train in-sample부터 무너진다** 
-— train→test 문제가 아니라 win rate 모델 자체가 train조차 못 맞춘 것.
+
+train→test 문제가 아니라 win rate 모델 자체가 train조차 못 맞춘 것.
 
 | 예산 | ORTB-CDF (tr/te) | ORTB-bbc (tr/te) |
 |---|---|---|
